@@ -40,8 +40,8 @@ class CoupleAssetTracker {
     async initCloudbase() {
         try {
             // 检查是否在微信环境中
-            if (typeof cloudbase !== 'undefined') {
-                this.cloudbase = cloudbase.init({
+            if (typeof tcb !== 'undefined') {
+                this.cloudbase = tcb.init({
                     env: 'cloud1-3g8s3xvm7609c639'
                 });
                 
