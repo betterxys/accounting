@@ -1,0 +1,21 @@
+{
+  "name": "couple-asset-tracker",
+  "version": "1.0.0",
+  "description": "肖肖和运运专用资产管理系统",
+  "main": "index.html",
+  "scripts": {
+    "start": "./start.sh",
+    "serve": "python3 -m http.server 3000",
+    "dev": "npx serve . -p 3000"
+  },
+  "keywords": [
+    "asset-management",
+    "couple-finance",
+    "monthly-tracking",
+    "data-visualization"
+  ],
+  "author": "肖肖 & 运运",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}

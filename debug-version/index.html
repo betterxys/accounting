@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>肖肖&运运资产管理</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="app">
+        <!-- 头部导航 -->
+        <header class="header">
+            <div class="header-content">
+                <h1>💰 肖肖&运运资产管理</h1>
+                <div class="current-month">
+                    <span id="currentMonth">2024年8月</span>
+                    <button id="newRecordBtn" class="btn btn-primary">📝 记账</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- 主要内容区 -->
+        <main class="main">
+            <!-- 导航标签 -->
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="overview">📊 概览</button>
+                <button class="tab-btn" data-tab="record">📝 记账</button>
+                <button class="tab-btn" data-tab="analysis">📈 分析</button>
+                <button class="tab-btn" data-tab="settings">⚙️ 设置</button>
+            </div>
+
+            <!-- 概览页面 -->
+            <div id="overview" class="tab-content active">
+                <!-- 当前资产概览 -->
+                <section class="asset-overview">
+                    <h2>当前资产概览</h2>
+                    <div class="asset-cards">
+                        <div class="asset-card xiaoxiao">
+                            <div class="card-header">
+                                <span class="user-avatar">👩</span>
+                                <span class="user-name">肖肖</span>
+                            </div>
+                            <div class="asset-amount" id="xiaoxiaoTotal">¥0.00</div>
+                            <div class="asset-change" id="xiaoxiaoChange">--</div>
+                        </div>
+                        
+                        <div class="asset-card yunyun">
+                            <div class="card-header">
+                                <span class="user-avatar">👨</span>
+                                <span class="user-name">运运</span>
+                            </div>
+                            <div class="asset-amount" id="yunyunTotal">¥0.00</div>
+                            <div class="asset-change" id="yunyunChange">--</div>
+                        </div>
+                        
+                        <div class="asset-card combined">
+                            <div class="card-header">
+                                <span class="user-avatar">💑</span>
+                                <span class="user-name">家庭总资产</span>
+                            </div>
+                            <div class="asset-amount" id="combinedTotal">¥0.00</div>
+                            <div class="asset-change" id="combinedChange">--</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 趋势图预览 -->
+                <section class="trend-preview">
+                    <h2>资产趋势</h2>
+                    <div class="chart-container">
+                        <canvas id="trendChart" width="400" height="200"></canvas>
+                    </div>
+                </section>
+
+                <!-- 最近记录 -->
+                <section class="recent-records">
+                    <h2>最近记录</h2>
+                    <div id="recentRecordsList" class="records-list">
+                        <!-- 记录列表将在这里显示 -->
+                    </div>
+                </section>
+            </div>
+
+            <!-- 记账页面 -->
+            <div id="record" class="tab-content">
+                <section class="record-section">
+                    <h2>月度记账</h2>
+                    
+                    <!-- 记账日期选择 -->
+                    <div class="record-date">
+                        <label for="recordDate">记账日期：</label>
+                        <input type="date" id="recordDate" class="form-input">
+                    </div>
+
+                    <!-- 双人记账区域 -->
+                    <div class="users-record">
+                        <!-- 肖肖的账户 -->
+                        <div class="user-section xiaoxiao-section">
+                            <h3>👩 肖肖的账户</h3>
+                            <div id="xiaoxiaoAccounts" class="accounts-input">
+                                <!-- 账户输入框将动态生成 -->
+                            </div>
+                            <div class="user-total">
+                                总计: <span id="xiaoxiaoRecordTotal">¥0.00</span>
+                            </div>
+                        </div>
+
+                        <!-- 运运的账户 -->
+                        <div class="user-section yunyun-section">
+                            <h3>👨 运运的账户</h3>
+                            <div id="yunyunAccounts" class="accounts-input">
+                                <!-- 账户输入框将动态生成 -->
+                            </div>
+                            <div class="user-total">
+                                总计: <span id="yunyunRecordTotal">¥0.00</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 总计和保存 -->
+                    <div class="record-summary">
+                        <div class="total-amount">
+                            家庭总资产: <span id="familyRecordTotal">¥0.00</span>
+                        </div>
+                        <button id="saveRecordBtn" class="btn btn-primary btn-large">💾 保存记录</button>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 分析页面 -->
+            <div id="analysis" class="tab-content">
+                <section class="analysis-section">
+                    <h2>数据分析</h2>
+                    
+                    <!-- 时间范围选择 -->
+                    <div class="time-range">
+                        <label>时间范围：</label>
+                        <select id="timeRange" class="form-select">
+                            <option value="6">最近6个月</option>
+                            <option value="12" selected>最近12个月</option>
+                            <option value="24">最近24个月</option>
+                        </select>
+                    </div>
+
+                    <!-- 图表区域 -->
+                    <div class="charts-grid">
+                        <!-- 资产趋势图 -->
+                        <div class="chart-item">
+                            <h3>资产趋势</h3>
+                            <canvas id="assetTrendChart" width="400" height="300"></canvas>
+                        </div>
+
+                        <!-- 账户分布图 -->
+                        <div class="chart-item">
+                            <h3>账户分布</h3>
+                            <canvas id="distributionChart" width="400" height="300"></canvas>
+                        </div>
+
+                        <!-- 月度变化图 -->
+                        <div class="chart-item">
+                            <h3>月度变化</h3>
+                            <canvas id="changeChart" width="400" height="300"></canvas>
+                        </div>
+
+                        <!-- 个人对比图 -->
+                        <div class="chart-item">
+                            <h3>个人资产对比</h3>
+                            <canvas id="comparisonChart" width="400" height="300"></canvas>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 设置页面 -->
+            <div id="settings" class="tab-content">
+                <section class="settings-section">
+                    <h2>系统设置</h2>
+                    
+                    <!-- 账户类型管理 -->
+                    <div class="setting-group">
+                        <h3>账户类型管理</h3>
+                        <div id="accountTypesList" class="account-types">
+                            <!-- 账户类型列表 -->
+                        </div>
+                        <button id="addAccountTypeBtn" class="btn btn-secondary">➕ 添加账户类型</button>
+                    </div>
+
+                    <!-- 数据管理 -->
+                    <div class="setting-group">
+                        <h3>数据管理</h3>
+                        <div class="data-actions">
+                            <button id="exportDataBtn" class="btn btn-secondary">📤 导出数据</button>
+                            <button id="importDataBtn" class="btn btn-secondary">📥 导入数据</button>
+                            <button id="clearDataBtn" class="btn btn-danger">🗑️ 清空数据</button>
+                        </div>
+                    </div>
+
+                    <!-- 系统信息 -->
+                    <div class="setting-group">
+                        <h3>系统信息</h3>
+                        <div class="system-info">
+                            <p>版本：1.0.0</p>
+                            <p>数据条数：<span id="dataCount">0</span></p>
+                            <p>最后记账：<span id="lastRecord">--</span></p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- 弹窗组件 -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">标题</h3>
+                <button id="closeModal" class="modal-close">&times;</button>
+            </div>
+            <div id="modalBody" class="modal-body">
+                <!-- 弹窗内容 -->
+            </div>
+            <div class="modal-footer">
+                <button id="modalCancel" class="btn btn-secondary">取消</button>
+                <button id="modalConfirm" class="btn btn-primary">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+    <script src="test-data.js"></script>
+</body>
+</html>
