@@ -1,18 +1,21 @@
 {
-  "name": "expense-tracker",
+  "name": "couple-asset-tracker",
   "version": "1.0.0",
-  "description": "简单的记账网站",
-  "main": "server/app.js",
+  "description": "肖肖和运运专用资产管理系统",
+  "main": "index.html",
   "scripts": {
-    "start": "node server/app.js",
-    "dev": "nodemon server/app.js"
+    "start": "./start.sh",
+    "serve": "python3 -m http.server 3000",
+    "dev": "npx serve . -p 3000"
   },
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "body-parser": "^1.20.2"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
-  }
+  "keywords": [
+    "asset-management",
+    "couple-finance",
+    "monthly-tracking",
+    "data-visualization"
+  ],
+  "author": "肖肖 & 运运",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
 }
