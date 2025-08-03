@@ -8,7 +8,6 @@
     <!-- 微信云开发 SDK -->
     <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
     <script src="https://res.wx.qq.com/open/js/cloudbase/1.5.0/index.umd.js"></script>
-    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -19,12 +18,11 @@
                 <h1>💰 肖肖&运运资产管理</h1>
                 <div class="current-month">
                     <span id="currentMonth">2024年8月</span>
-                    <div class="user-info">
-                        <span id="userInfo">未登录</span>
-                        <button id="loginBtn" class="btn btn-small">🔐 登录</button>
-                        <button id="logoutBtn" class="btn btn-small" style="display: none;">🚪 退出</button>
-                    </div>
                     <button id="newRecordBtn" class="btn btn-primary">📝 记账</button>
+                </div>
+                <div class="sync-status">
+                    <span id="syncStatus">🔄 连接中...</span>
+                    <button id="loginBtn" class="btn btn-small" style="display: none;">🔐 登录</button>
                 </div>
             </div>
         </header>
@@ -89,11 +87,6 @@
                         <!-- 记录列表将在这里显示 -->
                     </div>
                 </section>
-
-                <!-- 同步状态显示 -->
-                <div class="sync-status">
-                    <span id="syncStatus">🔄 正在同步...</span>
-                </div>
             </div>
 
             <!-- 记账页面 -->
@@ -209,7 +202,6 @@
                         <div class="data-actions">
                             <button id="exportDataBtn" class="btn btn-secondary">📤 导出数据</button>
                             <button id="importDataBtn" class="btn btn-secondary">📥 导入数据</button>
-                            <button id="syncDataBtn" class="btn btn-primary">🔄 手动同步</button>
                             <button id="clearDataBtn" class="btn btn-danger">🗑️ 清空数据</button>
                         </div>
                     </div>
