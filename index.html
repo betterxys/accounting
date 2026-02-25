@@ -186,6 +186,42 @@
                         <button id="addAccountTypeBtn" class="btn btn-secondary">➕ 添加账户类型</button>
                     </div>
 
+                    <!-- 云同步设置 -->
+                    <div class="setting-group">
+                        <h3>☁️ 云同步（Supabase）</h3>
+                        <div class="sync-config-grid">
+                            <div class="sync-field">
+                                <label for="supabaseUrl">Supabase URL</label>
+                                <input id="supabaseUrl" class="form-input" type="text" placeholder="https://xxxx.supabase.co">
+                            </div>
+                            <div class="sync-field">
+                                <label for="supabasePublishableKey">Publishable Key</label>
+                                <input id="supabasePublishableKey" class="form-input" type="text" placeholder="sb_publishable_xxx 或 anon key">
+                            </div>
+                            <div class="sync-field">
+                                <label for="supabaseEmail">登录邮箱（Magic Link）</label>
+                                <input id="supabaseEmail" class="form-input" type="email" placeholder="name@example.com">
+                            </div>
+                            <div class="sync-field sync-checkbox">
+                                <label for="autoSyncToggle">
+                                    <input id="autoSyncToggle" type="checkbox">
+                                    自动同步（本地保存后后台同步）
+                                </label>
+                            </div>
+                        </div>
+                        <div class="sync-actions">
+                            <button id="saveSyncConfigBtn" class="btn btn-secondary">💾 保存同步配置</button>
+                            <button id="supabaseLoginBtn" class="btn btn-secondary">🔐 发送登录链接</button>
+                            <button id="supabaseLogoutBtn" class="btn btn-danger">🚪 退出登录</button>
+                            <button id="syncNowBtn" class="btn btn-primary">🔄 立即同步</button>
+                        </div>
+                        <div class="sync-status">
+                            <p>认证状态：<span id="syncAuthStatus">未配置</span></p>
+                            <p>同步状态：<span id="syncStateStatus">未开始</span></p>
+                            <p>最后同步：<span id="syncLastSynced">--</span></p>
+                        </div>
+                    </div>
+
                     <!-- 数据管理 -->
                     <div class="setting-group">
                         <h3>数据管理</h3>
@@ -227,6 +263,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="script.js"></script>
     <script src="test-data.js"></script>
 </body>

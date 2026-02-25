@@ -2,7 +2,7 @@
 
 专为肖肖和运运设计的双人资产管理系统，支持月度记账、趋势分析和可视化图表。
 
-> 当前仓库只保留 **1 套实现**：纯前端 GitHub Pages 版本（`index.html + style.css + script.js`）。
+> 当前仓库只保留 **1 套实现**：纯前端 GitHub Pages 版本（`index.html + style.css + script.js`），并支持可选 Supabase 云同步。
 
 ## ✨ 核心功能
 
@@ -21,6 +21,7 @@
 ├── test-data.js        # 测试数据工具（loadTestData/clearTestData）
 ├── start.sh            # 本地启动脚本
 ├── package.json
+├── SUPABASE_SETUP.md   # Supabase 同步初始化 SQL
 └── 数据结构设计.md
 ```
 
@@ -59,11 +60,12 @@ clearTestData();  // 清空测试数据
 
 ## 💾 数据存储说明
 
-- 数据保存在浏览器 `localStorage`（键名：`coupleAssetTracker`）
-- 清空浏览器数据会导致本地记录丢失
-- 建议定期在设置页导出 JSON 备份
+- 本地数据保存在浏览器 `IndexedDB`（数据库：`couple_asset_tracker_db`）
+- 支持可选的 Supabase 云同步（设置页可配置 URL / Publishable Key / 邮箱登录）
+- 建议保留“导出 JSON”作为离线备份手段
 
 ## 🔧 开发说明
 
-- 这是纯前端项目，无后端依赖
+- 这是纯前端项目，默认仅本地运行（IndexedDB）
+- 如需云同步，请先按 `SUPABASE_SETUP.md` 初始化 Supabase 表和 RLS
 - 修改后直接提交并重新发布 GitHub Pages 即可生效
