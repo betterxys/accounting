@@ -418,6 +418,7 @@ class CoupleAssetTracker {
             }
         };
         this.charts = {};
+        this.resizeTimer = null;
         this.init().catch(error => {
             console.error('应用初始化失败:', error);
             alert(`应用初始化失败：${error.message}`);
@@ -685,6 +686,24 @@ class CoupleAssetTracker {
         // 弹窗事件
         document.getElementById('closeModal').addEventListener('click', () => this.hideModal());
         document.getElementById('modalCancel').addEventListener('click', () => this.hideModal());
+
+        // 小屏与横竖屏切换时，重新适配图表布局
+        window.addEventListener('resize', () => {
+            clearTimeout(this.resizeTimer);
+            this.resizeTimer = setTimeout(() => {
+                const isMobile = this.isMobileView();
+                if (this.charts.trend) {
+                    this.charts.trend.options.plugins.legend.position = isMobile ? 'bottom' : 'top';
+                    this.charts.trend.options.elements.point.radius = isMobile ? 3 : 4;
+                    this.charts.trend.options.elements.point.hoverRadius = isMobile ? 5 : 6;
+                    this.charts.trend.update('none');
+                }
+
+                if (document.getElementById('analysis').classList.contains('active')) {
+                    this.updateAnalysisCharts();
+                }
+            }, 180);
+        });
     }
 
     switchTab(tabName) {
@@ -711,6 +730,10 @@ class CoupleAssetTracker {
         const now = new Date();
         const monthStr = `${now.getFullYear()}年${now.getMonth() + 1}月`;
         document.getElementById('currentMonth').textContent = monthStr;
+    }
+
+    isMobileView() {
+        return window.matchMedia('(max-width: 768px)').matches;
     }
 
     renderAccountInputs() {
@@ -1004,7 +1027,7 @@ class CoupleAssetTracker {
                     <div class="record-date">${record.year}年${record.month}月</div>
                     <div class="record-meta">${record.recordDate}</div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 10px;">
+                <div class="record-actions">
                     <div class="record-amount">¥${record.totals.combined.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div>
                     <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;" onclick="app.editRecord('${record.id}')">
                         ✏️
@@ -1020,6 +1043,7 @@ class CoupleAssetTracker {
     initCharts() {
         // 初始化概览页面的趋势图
         const ctx = document.getElementById('trendChart').getContext('2d');
+        const isMobile = this.isMobileView();
         this.charts.trend = new Chart(ctx, {
             type: 'line',
             data: {
@@ -1054,7 +1078,7 @@ class CoupleAssetTracker {
                 maintainAspectRatio: false,
                 plugins: {
                     legend: {
-                        position: 'top',
+                        position: isMobile ? 'bottom' : 'top',
                     }
                 },
                 scales: {
@@ -1069,8 +1093,8 @@ class CoupleAssetTracker {
                 },
                 elements: {
                     point: {
-                        radius: 4,
-                        hoverRadius: 6
+                        radius: isMobile ? 3 : 4,
+                        hoverRadius: isMobile ? 5 : 6
                     }
                 }
             }
@@ -1131,6 +1155,7 @@ class CoupleAssetTracker {
 
     updateAssetTrendChart(months) {
         const ctx = document.getElementById('assetTrendChart').getContext('2d');
+        const isMobile = this.isMobileView();
         
         if (this.charts.assetTrend) {
             this.charts.assetTrend.destroy();
@@ -1140,10 +1165,6 @@ class CoupleAssetTracker {
             .slice()
             .sort((a, b) => new Date(a.recordDate) - new Date(b.recordDate))
             .slice(-months);
-
-        // 设置canvas固定尺寸
-        ctx.canvas.width = 400;
-        ctx.canvas.height = 300;
 
         this.charts.assetTrend = new Chart(ctx, {
             type: 'line',
@@ -1175,11 +1196,11 @@ class CoupleAssetTracker {
                 ]
             },
             options: {
-                responsive: false,
+                responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
                     legend: {
-                        position: 'top',
+                        position: isMobile ? 'bottom' : 'top',
                     }
                 },
                 scales: {
@@ -1215,10 +1236,6 @@ class CoupleAssetTracker {
             });
         });
 
-        // 设置canvas固定尺寸
-        ctx.canvas.width = 400;
-        ctx.canvas.height = 300;
-
         this.charts.distribution = new Chart(ctx, {
             type: 'doughnut',
             data: {
@@ -1230,7 +1247,7 @@ class CoupleAssetTracker {
                 }]
             },
             options: {
-                responsive: false,
+                responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
                     legend: {
@@ -1243,6 +1260,7 @@ class CoupleAssetTracker {
 
     updateChangeChart(months) {
         const ctx = document.getElementById('changeChart').getContext('2d');
+        const isMobile = this.isMobileView();
         
         if (this.charts.change) {
             this.charts.change.destroy();
@@ -1252,10 +1270,6 @@ class CoupleAssetTracker {
             .slice()
             .sort((a, b) => new Date(a.recordDate) - new Date(b.recordDate))
             .slice(-months);
-
-        // 设置canvas固定尺寸
-        ctx.canvas.width = 400;
-        ctx.canvas.height = 300;
 
         this.charts.change = new Chart(ctx, {
             type: 'bar',
@@ -1277,11 +1291,11 @@ class CoupleAssetTracker {
                 ]
             },
             options: {
-                responsive: false,
+                responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
                     legend: {
-                        position: 'top',
+                        position: isMobile ? 'bottom' : 'top',
                     }
                 },
                 scales: {
@@ -1299,6 +1313,7 @@ class CoupleAssetTracker {
 
     updateComparisonChart() {
         const ctx = document.getElementById('comparisonChart').getContext('2d');
+        const isMobile = this.isMobileView();
         
         if (this.charts.comparison) {
             this.charts.comparison.destroy();
@@ -1306,10 +1321,6 @@ class CoupleAssetTracker {
 
         const latestRecord = this.data.monthlyRecords[0];
         if (!latestRecord) return;
-
-        // 设置canvas固定尺寸
-        ctx.canvas.width = 400;
-        ctx.canvas.height = 300;
 
         this.charts.comparison = new Chart(ctx, {
             type: 'bar',
@@ -1331,11 +1342,11 @@ class CoupleAssetTracker {
                 ]
             },
             options: {
-                responsive: false,
+                responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
                     legend: {
-                        position: 'top',
+                        position: isMobile ? 'bottom' : 'top',
                     }
                 },
                 scales: {
