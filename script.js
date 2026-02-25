@@ -6,8 +6,8 @@ const APP_SYNC_META_KEY = 'sync_meta';
 const SUPABASE_SYNC_TABLE = 'asset_documents';
 const BOUND_SUPABASE_CONFIG = Object.freeze({
     // 绑定配置模式：在部署前填入你的 Supabase 项目配置
-    supabaseUrl: '',
-    supabasePublishableKey: ''
+    supabaseUrl: 'https://agkbbktmeyvjbbvswmja.supabase.co',
+    supabasePublishableKey: 'sb_publishable_TkbD-BScRzpl6t_wtgLXNQ_ztUXfTvA'
 });
 
 class IndexedDBStorageAdapter {
