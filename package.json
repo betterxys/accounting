@@ -1,7 +1,7 @@
 {
-  "name": "couple-asset-tracker",
+  "name": "web-bookkeeping-pro",
   "version": "1.0.0",
-  "description": "肖肖和运运专用资产管理系统",
+  "description": "通用 Web 记账系统，支持预算和图表分析",
   "main": "index.html",
   "scripts": {
     "start": "./start.sh",
@@ -9,12 +9,12 @@
     "dev": "npx serve . -p 3000"
   },
   "keywords": [
-    "asset-management",
-    "couple-finance",
-    "monthly-tracking",
+    "bookkeeping",
+    "expense-tracker",
+    "budget-management",
     "data-visualization"
   ],
-  "author": "肖肖 & 运运",
+  "author": "Web Bookkeeping Pro",
   "license": "MIT",
   "dependencies": {},
   "devDependencies": {}
