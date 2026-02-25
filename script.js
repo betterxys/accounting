@@ -1133,4 +1133,5 @@ class CoupleAssetTracker {
 let app;
 document.addEventListener('DOMContentLoaded', () => {
     app = new CoupleAssetTracker();
+    window.app = app; // 暴露app到全局，供test-data.js使用
 });
