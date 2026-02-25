@@ -61,11 +61,11 @@ clearTestData();  // 清空测试数据
 ## 💾 数据存储说明
 
 - 本地数据保存在浏览器 `IndexedDB`（数据库：`couple_asset_tracker_db`）
-- 支持可选的 Supabase 云同步（设置页可配置 URL / Publishable Key / 邮箱登录）
+- 支持可选的 Supabase 云同步（项目绑定模式：URL / Key 写在代码中，用户只需登录邮箱）
 - 建议保留“导出 JSON”作为离线备份手段
 
 ## 🔧 开发说明
 
 - 这是纯前端项目，默认仅本地运行（IndexedDB）
-- 如需云同步，请先按 `SUPABASE_SETUP.md` 初始化 Supabase 表和 RLS
+- 如需云同步，请先按 `SUPABASE_SETUP.md` 初始化 Supabase 表和 RLS，再在 `script.js` 填写绑定配置常量
 - 修改后直接提交并重新发布 GitHub Pages 即可生效
