@@ -177,13 +177,17 @@
                 <section class="settings-section">
                     <h2>系统设置</h2>
                     
-                    <!-- 账户类型管理 -->
+                    <!-- 资产明细管理 -->
                     <div class="setting-group">
-                        <h3>账户类型管理</h3>
+                        <h3>资产明细管理（平台 / 产品 / 币种 / 归属人）</h3>
+                        <p class="sync-bound-info">币种目前用于明细标识与筛查，不自动做汇率换算；家庭总资产默认按录入数值直接汇总。</p>
                         <div id="accountTypesList" class="account-types">
                             <!-- 账户类型列表 -->
                         </div>
-                        <button id="addAccountTypeBtn" class="btn btn-secondary">➕ 添加账户类型</button>
+                        <div class="account-mgmt-actions">
+                            <button id="addAccountTypeBtn" class="btn btn-secondary">➕ 添加明细项</button>
+                            <button id="batchImportAccountTypeBtn" class="btn btn-secondary">📋 批量导入表格明细</button>
+                        </div>
                     </div>
 
                     <!-- 云同步设置 -->

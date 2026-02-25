@@ -439,13 +439,87 @@ class CoupleAssetTracker {
 
     getDefaultAccountTypes() {
         return [
-            { id: 'cmbc', name: '招商银行', icon: '🏦', color: '#d32f2f', category: 'bank' },
-            { id: 'icbc', name: '中国银行', icon: '🏛️', color: '#1976d2', category: 'bank' },
-            { id: 'ccb', name: '建设银行', icon: '🏦', color: '#0d47a1', category: 'bank' },
-            { id: 'wechat', name: '微信', icon: '💬', color: '#4caf50', category: 'payment' },
-            { id: 'alipay', name: '支付宝', icon: '💰', color: '#2196f3', category: 'payment' },
-            { id: 'cash', name: '现金', icon: '💵', color: '#ff9800', category: 'cash' }
+            { id: 'cmbc', platform: '招商银行', name: '活期存款', currency: 'CNY', ownerId: 'both', icon: '🏦', color: '#d32f2f', category: 'bank' },
+            { id: 'icbc', platform: '中国银行', name: '活期存款', currency: 'CNY', ownerId: 'both', icon: '🏛️', color: '#1976d2', category: 'bank' },
+            { id: 'ccb', platform: '建设银行', name: '活期存款', currency: 'CNY', ownerId: 'both', icon: '🏦', color: '#0d47a1', category: 'bank' },
+            { id: 'wechat', platform: '微信', name: '零钱', currency: 'CNY', ownerId: 'both', icon: '💬', color: '#4caf50', category: 'payment' },
+            { id: 'alipay', platform: '支付宝', name: '余额', currency: 'CNY', ownerId: 'both', icon: '💰', color: '#2196f3', category: 'payment' },
+            { id: 'cash', platform: '现金', name: '现金', currency: 'CNY', ownerId: 'both', icon: '💵', color: '#ff9800', category: 'cash' }
         ];
+    }
+
+    normalizeCurrency(value) {
+        const raw = String(value || '').trim().toUpperCase();
+        if (!raw || raw === '¥' || raw === '元' || raw === 'RMB' || raw === 'CNY' || raw === '人民币') {
+            return 'CNY';
+        }
+        if (raw.includes('USD') || raw.includes('US$') || raw === '$') return 'USD';
+        if (raw.includes('HKD') || raw.includes('HK$')) return 'HKD';
+        if (raw.includes('EUR') || raw.includes('€')) return 'EUR';
+        if (raw.includes('GBP') || raw.includes('£')) return 'GBP';
+        return raw;
+    }
+
+    getCurrencyLabel(currency) {
+        const normalized = this.normalizeCurrency(currency);
+        if (normalized === 'CNY') return '元';
+        return normalized;
+    }
+
+    getOwnerLabel(ownerId) {
+        if (ownerId === 'xiaoxiao') return '肖肖专用';
+        if (ownerId === 'yunyun') return '运运专用';
+        return '双方共用';
+    }
+
+    guessIconByPlatform(platform) {
+        const text = String(platform || '');
+        if (text.includes('支付宝')) return '💰';
+        if (text.includes('微信')) return '💬';
+        if (text.includes('汇') || text.includes('银行') || text.includes('行')) return '🏦';
+        if (text.includes('现金')) return '💵';
+        if (text.includes('基金') || text.includes('理财') || text.includes('股票')) return '📈';
+        return '💼';
+    }
+
+    guessColorByPlatform(platform) {
+        const text = String(platform || '');
+        if (text.includes('招商')) return '#d32f2f';
+        if (text.includes('支付宝')) return '#1677ff';
+        if (text.includes('微信')) return '#1aad19';
+        if (text.includes('汇')) return '#4b6cb7';
+        if (text.includes('银行') || text.includes('行')) return '#1976d2';
+        if (text.includes('基金') || text.includes('理财') || text.includes('股票')) return '#7b1fa2';
+        return '#607d8b';
+    }
+
+    normalizeAccountType(rawAccount, fallbackIndex = 0) {
+        const source = rawAccount && typeof rawAccount === 'object' ? rawAccount : {};
+        const platform = String(source.platform || source.name || '未分类平台').trim() || '未分类平台';
+        const name = String(source.name || '未命名资产').trim() || '未命名资产';
+        const ownerId = source.ownerId === 'xiaoxiao' || source.ownerId === 'yunyun' ? source.ownerId : 'both';
+        const currency = this.normalizeCurrency(source.currency);
+        const now = new Date().toISOString();
+
+        return {
+            id: source.id || `custom_${Date.now()}_${fallbackIndex}`,
+            platform,
+            name,
+            ownerId,
+            currency,
+            icon: source.icon || this.guessIconByPlatform(platform),
+            color: source.color || this.guessColorByPlatform(platform),
+            category: source.category || 'other',
+            createdAt: source.createdAt || now,
+            updatedAt: source.updatedAt || source.createdAt || now
+        };
+    }
+
+    getUserAccounts(userId) {
+        return this.data.accountTypes.filter(account => {
+            const ownerId = account.ownerId || 'both';
+            return ownerId === 'both' || ownerId === userId;
+        });
     }
 
     getDefaultUsers() {
@@ -485,14 +559,15 @@ class CoupleAssetTracker {
         const source = rawData && typeof rawData === 'object' ? rawData : {};
         const sourceSettings = source.settings && typeof source.settings === 'object' ? source.settings : {};
         const sourceSync = sourceSettings.sync && typeof sourceSettings.sync === 'object' ? sourceSettings.sync : {};
+        const sourceAccountTypes = Array.isArray(source.accountTypes) && source.accountTypes.length > 0
+            ? source.accountTypes
+            : defaults.accountTypes;
 
         const merged = {
             ...defaults,
             ...source,
             monthlyRecords: Array.isArray(source.monthlyRecords) ? source.monthlyRecords : defaults.monthlyRecords,
-            accountTypes: Array.isArray(source.accountTypes) && source.accountTypes.length > 0
-                ? source.accountTypes
-                : defaults.accountTypes,
+            accountTypes: sourceAccountTypes.map((account, index) => this.normalizeAccountType(account, index)),
             settings: {
                 ...defaults.settings,
                 ...sourceSettings,
@@ -563,7 +638,7 @@ class CoupleAssetTracker {
         const mergedAccounts = this.mergeArrayById(
             localMerged.accountTypes,
             remoteMerged.accountTypes
-        );
+        ).map((account, index) => this.normalizeAccountType(account, index));
 
         const localSyncSettings = localMerged.settings.sync || this.getDefaultSyncSettings();
         const remoteSyncSettings = remoteMerged.settings.sync || this.getDefaultSyncSettings();
@@ -667,6 +742,10 @@ class CoupleAssetTracker {
 
         // 设置相关
         document.getElementById('addAccountTypeBtn').addEventListener('click', () => this.showAddAccountTypeModal());
+        const batchImportBtn = document.getElementById('batchImportAccountTypeBtn');
+        if (batchImportBtn) {
+            batchImportBtn.addEventListener('click', () => this.showBatchImportAccountModal());
+        }
         document.getElementById('exportDataBtn').addEventListener('click', () => this.exportData());
         document.getElementById('importDataBtn').addEventListener('click', () => this.importData());
         document.getElementById('clearDataBtn').addEventListener('click', () => this.clearData());
@@ -742,13 +821,22 @@ class CoupleAssetTracker {
         users.forEach(user => {
             const container = document.getElementById(`${user.id}Accounts`);
             container.innerHTML = '';
+            const userAccounts = this.getUserAccounts(user.id);
+            if (userAccounts.length === 0) {
+                container.innerHTML = '<p class="empty-user-accounts">暂无资产明细，请到“设置 → 资产明细管理”添加。</p>';
+                return;
+            }
 
-            this.data.accountTypes.forEach(account => {
+            userAccounts.forEach(account => {
                 const inputGroup = document.createElement('div');
                 inputGroup.className = 'account-input-group';
                 inputGroup.innerHTML = `
                     <span class="account-icon">${account.icon}</span>
-                    <span class="account-label">${account.name}</span>
+                    <div class="account-label-wrap">
+                        <span class="account-platform">${account.platform}</span>
+                        <span class="account-label">${account.name}</span>
+                    </div>
+                    <span class="account-currency">${this.getCurrencyLabel(account.currency)}</span>
                     <input 
                         type="number" 
                         step="0.01" 
@@ -811,10 +899,13 @@ class CoupleAssetTracker {
     loadRecordData(record) {
         // 填充各账户的余额数据
         this.data.settings.users.forEach(user => {
-            this.data.accountTypes.forEach(account => {
+            this.getUserAccounts(user.id).forEach(account => {
                 const input = document.querySelector(`[data-user="${user.id}"][data-account="${account.id}"]`);
-                if (input && record.balances[user.id] && record.balances[user.id][account.id] !== undefined) {
-                    input.value = record.balances[user.id][account.id];
+                if (input) {
+                    const value = record.balances[user.id] && record.balances[user.id][account.id] !== undefined
+                        ? record.balances[user.id][account.id]
+                        : '';
+                    input.value = value;
                 }
             });
         });
@@ -888,9 +979,9 @@ class CoupleAssetTracker {
             balances[user.id] = {};
             let userTotal = 0;
 
-            this.data.accountTypes.forEach(account => {
+            this.getUserAccounts(user.id).forEach(account => {
                 const input = document.querySelector(`[data-user="${user.id}"][data-account="${account.id}"]`);
-                const amount = parseFloat(input.value) || 0;
+                const amount = input ? (parseFloat(input.value) || 0) : 0;
                 balances[user.id][account.id] = amount;
                 userTotal += amount;
             });
@@ -1227,22 +1318,27 @@ class CoupleAssetTracker {
         const latestRecord = this.data.monthlyRecords[0];
         if (!latestRecord) return;
 
-        // 计算各账户类型的总金额
-        const accountTotals = {};
+        const labels = [];
+        const data = [];
+        const colors = [];
+
         this.data.accountTypes.forEach(account => {
-            accountTotals[account.name] = 0;
-            this.data.settings.users.forEach(user => {
-                accountTotals[account.name] += latestRecord.balances[user.id]?.[account.id] || 0;
-            });
+            const amount = this.data.settings.users.reduce((sum, user) => {
+                return sum + (latestRecord.balances[user.id]?.[account.id] || 0);
+            }, 0);
+
+            labels.push(`${account.platform} · ${account.name} (${this.getCurrencyLabel(account.currency)})`);
+            data.push(amount);
+            colors.push(account.color || '#90a4ae');
         });
 
         this.charts.distribution = new Chart(ctx, {
             type: 'doughnut',
             data: {
-                labels: Object.keys(accountTotals),
+                labels,
                 datasets: [{
-                    data: Object.values(accountTotals),
-                    backgroundColor: this.data.accountTypes.map(a => a.color),
+                    data,
+                    backgroundColor: colors,
                     borderWidth: 2
                 }]
             },
@@ -1367,15 +1463,21 @@ class CoupleAssetTracker {
         const container = document.getElementById('accountTypesList');
         container.innerHTML = '';
 
-        this.data.accountTypes.forEach((account, index) => {
+        this.data.accountTypes.forEach(account => {
             const item = document.createElement('div');
             item.className = 'account-type-item';
             item.innerHTML = `
                 <div class="account-type-info">
                     <span class="account-type-icon">${account.icon}</span>
-                    <span>${account.name}</span>
+                    <div class="account-type-main">
+                        <div class="account-type-title">${account.platform} · ${account.name}</div>
+                        <div class="account-type-meta">
+                            <span>${this.getOwnerLabel(account.ownerId)}</span>
+                            <span>${this.getCurrencyLabel(account.currency)}</span>
+                        </div>
+                    </div>
                 </div>
-                <button class="btn btn-danger" onclick="app.removeAccountType(${index})" style="padding: 4px 8px; font-size: 0.8rem;">删除</button>
+                <button class="btn btn-danger" onclick="app.removeAccountType('${account.id}')" style="padding: 4px 8px; font-size: 0.8rem;">删除</button>
             `;
             container.appendChild(item);
         });
@@ -1441,7 +1543,7 @@ class CoupleAssetTracker {
     }
 
     showAddAccountTypeModal() {
-        document.getElementById('modalTitle').textContent = '添加账户类型';
+        document.getElementById('modalTitle').textContent = '添加资产明细项';
         
         const presetIcons = [
             // 银行类
@@ -1467,9 +1569,36 @@ class CoupleAssetTracker {
 
         document.getElementById('modalBody').innerHTML = `
             <div style="display: grid; gap: 20px;">
-                <div>
-                    <label style="font-weight: 500; margin-bottom: 8px; display: block;">账户名称：</label>
-                    <input type="text" id="newAccountName" class="form-input" style="width: 100%;" placeholder="如：工商银行">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div>
+                        <label style="font-weight: 500; margin-bottom: 8px; display: block;">平台：</label>
+                        <input type="text" id="newAccountPlatform" class="form-input" style="width: 100%;" placeholder="如：招行 / 支付宝 / 汇丰">
+                    </div>
+                    <div>
+                        <label style="font-weight: 500; margin-bottom: 8px; display: block;">产品名称：</label>
+                        <input type="text" id="newAccountName" class="form-input" style="width: 100%;" placeholder="如：朝朝盈 / 余额宝">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div>
+                        <label style="font-weight: 500; margin-bottom: 8px; display: block;">归属用户：</label>
+                        <select id="newAccountOwner" class="form-select" style="width: 100%;">
+                            <option value="xiaoxiao">肖肖专用</option>
+                            <option value="yunyun">运运专用</option>
+                            <option value="both">双方共用</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-weight: 500; margin-bottom: 8px; display: block;">币种：</label>
+                        <select id="newAccountCurrency" class="form-select" style="width: 100%;">
+                            <option value="CNY">人民币（CNY）</option>
+                            <option value="USD">美元（USD）</option>
+                            <option value="HKD">港币（HKD）</option>
+                            <option value="EUR">欧元（EUR）</option>
+                            <option value="GBP">英镑（GBP）</option>
+                        </select>
+                    </div>
                 </div>
                 
                 <div>
@@ -1530,6 +1659,118 @@ class CoupleAssetTracker {
         
         document.getElementById('modalConfirm').onclick = () => this.addAccountType();
         this.showModal();
+    }
+
+    showBatchImportAccountModal() {
+        document.getElementById('modalTitle').textContent = '批量导入资产明细';
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('modalBody').innerHTML = `
+            <div style="display: grid; gap: 14px;">
+                <p style="margin: 0; color: #4f5d75; background: #eef3ff; border: 1px solid #d6e2ff; border-radius: 8px; padding: 10px 12px;">
+                    直接粘贴 Excel 三列表格（平台 / 产品名称 / 当前金额）。金额里的币种会自动识别（如 USD / HKD）。
+                </p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div>
+                        <label style="font-weight: 500; margin-bottom: 8px; display: block;">归属用户：</label>
+                        <select id="batchImportOwner" class="form-select" style="width: 100%;">
+                            <option value="xiaoxiao">肖肖</option>
+                            <option value="yunyun">运运</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-weight: 500; margin-bottom: 8px; display: block;">记账日期：</label>
+                        <input id="batchImportRecordDate" class="form-input" type="date" value="${today}" style="width: 100%;">
+                    </div>
+                </div>
+                <label style="display: inline-flex; align-items: center; gap: 8px; font-weight: 500;">
+                    <input id="batchImportApplyAmounts" type="checkbox" checked>
+                    同步把金额填入记账页（导入后还需手动点“保存记录”）
+                </label>
+                <div>
+                    <label style="font-weight: 500; margin-bottom: 8px; display: block;">明细表格内容：</label>
+                    <textarea id="batchImportRows" class="form-input" style="width: 100%; min-height: 220px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;" placeholder="平台\t产品名称\t当前金额\n招行\t招行活期存款\t981,926.37 元\n支付宝\t余额宝\t377,621.79 元\n汇丰\t美元储蓄\t8,560.44 USD"></textarea>
+                </div>
+            </div>
+        `;
+        document.getElementById('modalConfirm').onclick = () => this.batchImportAccountTypes();
+        this.showModal();
+    }
+
+    inferCurrencyFromAmountText(amountText) {
+        const raw = String(amountText || '').toUpperCase();
+        if (raw.includes('USD') || raw.includes('US$')) return 'USD';
+        if (raw.includes('HKD') || raw.includes('HK$')) return 'HKD';
+        if (raw.includes('EUR') || raw.includes('€')) return 'EUR';
+        if (raw.includes('GBP') || raw.includes('£')) return 'GBP';
+        return 'CNY';
+    }
+
+    parseAmountFromText(amountText) {
+        const normalized = String(amountText || '')
+            .replace(/,/g, '')
+            .replace(/[^\d.-]/g, '');
+        const value = parseFloat(normalized);
+        return Number.isFinite(value) ? value : 0;
+    }
+
+    parseImportedAssetRows(rawText) {
+        return String(rawText || '')
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean)
+            .map(line => {
+                const columns = line.includes('\t')
+                    ? line.split('\t').map(v => v.trim()).filter(Boolean)
+                    : line.split(/\s{2,}/).map(v => v.trim()).filter(Boolean);
+
+                if (columns.length < 2) return null;
+
+                const platform = columns[0];
+                const name = columns[1];
+                const amountText = columns[2] || '';
+
+                if ((platform === '平台' || platform === '平台名称') && String(name).includes('产品')) {
+                    return null;
+                }
+                if (!platform || !name) return null;
+
+                return {
+                    platform,
+                    name,
+                    currency: this.inferCurrencyFromAmountText(amountText),
+                    amount: this.parseAmountFromText(amountText)
+                };
+            })
+            .filter(Boolean);
+    }
+
+    upsertAccountType(platform, name, ownerId, currency) {
+        const normalizedCurrency = this.normalizeCurrency(currency);
+        const existing = this.data.accountTypes.find(account =>
+            account.platform === platform &&
+            account.name === name &&
+            (account.ownerId || 'both') === ownerId &&
+            this.normalizeCurrency(account.currency) === normalizedCurrency
+        );
+
+        if (existing) {
+            return { account: existing, isNew: false };
+        }
+
+        const newAccount = this.normalizeAccountType({
+            id: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            platform,
+            name,
+            ownerId,
+            currency: normalizedCurrency,
+            icon: this.guessIconByPlatform(platform),
+            color: this.guessColorByPlatform(platform),
+            category: 'other',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        });
+        this.data.accountTypes.push(newAccount);
+        return { account: newAccount, isNew: true };
     }
 
     initAccountModalEvents() {
@@ -1600,8 +1841,65 @@ class CoupleAssetTracker {
         });
     }
 
+    async batchImportAccountTypes() {
+        const ownerId = document.getElementById('batchImportOwner').value;
+        const recordDate = document.getElementById('batchImportRecordDate').value;
+        const applyAmounts = Boolean(document.getElementById('batchImportApplyAmounts').checked);
+        const rawRows = document.getElementById('batchImportRows').value;
+        const rows = this.parseImportedAssetRows(rawRows);
+
+        if (rows.length === 0) {
+            alert('未解析到有效明细，请检查粘贴内容（至少包含平台和产品名称两列）');
+            return;
+        }
+
+        let newCount = 0;
+        const importedValues = [];
+
+        rows.forEach(row => {
+            const { account, isNew } = this.upsertAccountType(
+                row.platform,
+                row.name,
+                ownerId,
+                row.currency
+            );
+            if (isNew) newCount += 1;
+            importedValues.push({
+                accountId: account.id,
+                amount: row.amount
+            });
+        });
+
+        this.renderAccountInputs();
+
+        if (applyAmounts) {
+            const targetDate = recordDate || new Date().toISOString().split('T')[0];
+            this.switchTab('record');
+            document.getElementById('recordDate').value = targetDate;
+            this.loadRecordByDate();
+
+            importedValues.forEach(item => {
+                const input = document.querySelector(`[data-user="${ownerId}"][data-account="${item.accountId}"]`);
+                if (input) {
+                    input.value = item.amount === 0 ? '0' : String(item.amount);
+                }
+            });
+            this.updateRecordTotals();
+        }
+
+        await this.saveData();
+        this.renderSettings();
+        this.hideModal();
+
+        const applyTip = applyAmounts ? '，金额已回填到记账页（请手动点击“保存记录”）' : '';
+        alert(`已导入 ${rows.length} 条明细，新增 ${newCount} 条资产模板${applyTip}`);
+    }
+
     addAccountType() {
+        const platform = document.getElementById('newAccountPlatform').value.trim();
         const name = document.getElementById('newAccountName').value.trim();
+        const ownerId = document.getElementById('newAccountOwner').value;
+        const currency = this.normalizeCurrency(document.getElementById('newAccountCurrency').value);
         const selectedIcon = document.getElementById('selectedIcon').textContent;
         const customIcon = document.getElementById('customIcon').value.trim();
         const selectedColor = document.getElementById('customColor').value;
@@ -1610,27 +1908,35 @@ class CoupleAssetTracker {
         // 优先使用自定义图标，否则使用选中的预设图标
         const icon = customIcon || selectedIcon;
 
-        if (!name || !icon) {
-            alert('请填写账户名称和选择图标');
+        if (!platform || !name || !icon) {
+            alert('请填写平台、产品名称并选择图标');
             return;
         }
 
-        // 检查是否已存在相同名称的账户
-        const existingAccount = this.data.accountTypes.find(acc => acc.name === name);
+        // 检查是否已存在相同明细
+        const existingAccount = this.data.accountTypes.find(acc =>
+            acc.platform === platform &&
+            acc.name === name &&
+            (acc.ownerId || 'both') === ownerId &&
+            this.normalizeCurrency(acc.currency) === currency
+        );
         if (existingAccount) {
-            alert('账户名称已存在，请使用其他名称');
+            alert('该用户下已存在相同平台 + 产品 + 币种的明细项');
             return;
         }
 
-        const newAccount = {
-            id: 'custom_' + Date.now(),
+        const newAccount = this.normalizeAccountType({
+            id: `custom_${Date.now()}`,
+            platform,
             name,
+            ownerId,
+            currency,
             icon,
             color: selectedColor,
             category,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
-        };
+        });
 
         this.data.accountTypes.push(newAccount);
         this.saveData();
@@ -1641,8 +1947,12 @@ class CoupleAssetTracker {
         console.log('✅ 新账户已添加:', newAccount);
     }
 
-    removeAccountType(index) {
-        if (confirm('确定删除这个账户类型吗？这将影响所有相关记录。')) {
+    removeAccountType(accountId) {
+        const index = this.data.accountTypes.findIndex(account => account.id === accountId);
+        if (index < 0) return;
+        const target = this.data.accountTypes[index];
+
+        if (confirm(`确定删除「${target.platform} / ${target.name}」吗？这将影响相关历史记录。`)) {
             this.data.accountTypes.splice(index, 1);
             this.saveData();
             this.renderAccountInputs();
