@@ -6,9 +6,10 @@
     <title>轻记账 Pro | Web 版</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-    <div class="app-shell">
+    <div id="appShell" class="app-shell">
         <header class="topbar">
             <div class="brand">
                 <h1>轻记账 Pro</h1>
@@ -20,6 +21,10 @@
                     <input id="overviewMonth" type="month" class="field">
                 </label>
                 <button id="quickAddBtn" class="btn btn-primary">+ 记一笔</button>
+                <div class="auth-box">
+                    <span id="authUserLabel" class="auth-user-label">未登录</span>
+                    <button id="logoutBtn" class="btn btn-secondary" type="button" hidden>退出登录</button>
+                </div>
             </div>
         </header>
 
@@ -280,8 +285,31 @@
         </main>
     </div>
 
+    <div id="authGate" class="auth-gate">
+        <div class="auth-card">
+            <h2>登录后开始记账</h2>
+            <p id="authHint">请使用邮箱登录，数据将安全存储在你的 Supabase 账号下。</p>
+            <div class="form-grid auth-grid">
+                <label>
+                    邮箱
+                    <input id="authEmail" type="email" class="field" placeholder="you@example.com" autocomplete="email">
+                </label>
+                <label>
+                    密码
+                    <input id="authPassword" type="password" class="field" placeholder="至少 6 位" autocomplete="current-password">
+                </label>
+            </div>
+            <div class="actions">
+                <button id="loginBtn" class="btn btn-primary" type="button">登录</button>
+                <button id="registerBtn" class="btn btn-secondary" type="button">注册</button>
+            </div>
+            <small>新用户点击“注册”，旧用户点击“登录”。若开启邮件验证，请先去邮箱确认。</small>
+        </div>
+    </div>
+
     <div id="toast" class="toast"></div>
 
+    <script src="supabase-config.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

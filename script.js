@@ -1,5 +1,6 @@
-const STORAGE_KEY = "web_bookkeeping_pro_v1";
+const LOCAL_CACHE_KEY = "web_bookkeeping_cache_v2";
 const LAST_EXPORT_KEY = "web_bookkeeping_last_export";
+const REMOTE_TABLE = "user_bookkeeping_data";
 
 function debounce(fn, delay = 200) {
     let timer = null;
@@ -14,6 +15,11 @@ class WebBookkeepingApp {
         this.charts = {};
         this.currentEditingId = null;
         this.toastTimer = null;
+        this.saveTimer = null;
+        this.supabase = null;
+        this.user = null;
+        this.authConfigured = false;
+        this.authStateMessage = "";
         this.currencyFormatter = new Intl.NumberFormat("zh-CN", {
             style: "currency",
             currency: "CNY",
@@ -21,15 +27,150 @@ class WebBookkeepingApp {
             maximumFractionDigits: 2
         });
 
-        this.data = this.loadData();
-        this.init();
+        this.data = this.loadLocalCache();
     }
 
-    init() {
+    async init() {
         this.cacheElements();
         this.bindEvents();
         this.bootstrapDefaults();
         this.sortTransactions();
+        this.renderAll();
+        this.setAppLocked(true);
+        this.updateAuthUi();
+
+        this.authConfigured = this.initializeSupabaseClient();
+        if (!this.authConfigured) {
+            this.setAuthMessage("请先在 supabase-config.js 填写 Supabase URL 和 anon key。");
+            this.showToast("未配置 Supabase，无法登录。", "error");
+            return;
+        }
+
+        this.setAuthMessage("正在检查登录状态...");
+        this.setAuthButtonsLoading(true);
+
+        try {
+            const { data, error } = await this.supabase.auth.getSession();
+            if (error) {
+                throw error;
+            }
+            await this.handleSession(data?.session || null, false, "INITIAL");
+        } catch (error) {
+            console.error("读取登录状态失败：", error);
+            this.setAuthMessage("无法连接认证服务，请稍后重试。");
+            this.showToast("认证服务异常，请稍后重试。", "error");
+        } finally {
+            this.setAuthButtonsLoading(false);
+        }
+
+        this.supabase.auth.onAuthStateChange((event, session) => {
+            this.handleSession(session, true, event).catch((error) => {
+                console.error("处理会话状态失败：", error);
+                this.showToast("会话状态更新失败", "error");
+            });
+        });
+    }
+
+    initializeSupabaseClient() {
+        if (!window.supabase || typeof window.supabase.createClient !== "function") {
+            this.setAuthMessage("未成功加载 Supabase SDK，请检查网络。");
+            return false;
+        }
+
+        const config = window.SUPABASE_CONFIG || {};
+        const url = String(config.url || "").trim();
+        const anonKey = String(config.anonKey || "").trim();
+        const looksLikePlaceholder =
+            !url ||
+            !anonKey ||
+            url.includes("YOUR_") ||
+            anonKey.includes("YOUR_") ||
+            url.includes("example");
+
+        if (looksLikePlaceholder) {
+            return false;
+        }
+
+        try {
+            this.supabase = window.supabase.createClient(url, anonKey, {
+                auth: {
+                    autoRefreshToken: true,
+                    persistSession: true,
+                    detectSessionInUrl: true
+                }
+            });
+            return true;
+        } catch (error) {
+            console.error("初始化 Supabase 客户端失败：", error);
+            this.setAuthMessage("Supabase 配置无效，请检查 supabase-config.js。");
+            return false;
+        }
+    }
+
+    async handleSession(session, notify = true, eventName = "") {
+        const nextUser = session?.user || null;
+        this.user = nextUser;
+        this.updateAuthUi();
+
+        if (!nextUser) {
+            this.data = this.buildDefaultData();
+            this.saveLocalCache();
+            this.bootstrapDefaults();
+            this.sortTransactions();
+            this.renderAll();
+            this.setAppLocked(true);
+            this.setAuthMessage("请登录后开始记账。");
+            if (notify && eventName === "SIGNED_OUT") {
+                this.showToast("已退出登录", "success");
+            }
+            return;
+        }
+
+        this.setAuthButtonsLoading(true);
+        this.setAuthMessage("登录成功，正在同步云端数据...");
+        this.setAppLocked(false);
+
+        try {
+            await this.loadRemoteData();
+            this.setAuthMessage("数据已同步，你可以开始记账。");
+            if (notify && (eventName === "SIGNED_IN" || eventName === "TOKEN_REFRESHED")) {
+                this.showToast("登录成功，数据已同步。", "success");
+            }
+        } catch (error) {
+            console.error("加载云端数据失败：", error);
+            this.setAppLocked(true);
+            this.setAuthMessage("读取云端数据失败，请检查 Supabase 表结构和权限。");
+            this.showToast("云端数据读取失败，请检查配置。", "error");
+        } finally {
+            this.setAuthButtonsLoading(false);
+        }
+    }
+
+    async loadRemoteData() {
+        if (!this.supabase || !this.user) return;
+
+        const userId = this.user.id;
+        const { data, error } = await this.supabase
+            .from(REMOTE_TABLE)
+            .select("payload, updated_at")
+            .eq("user_id", userId)
+            .maybeSingle();
+
+        if (error) {
+            throw error;
+        }
+
+        if (data?.payload) {
+            this.data = this.normalizeData(data.payload);
+        } else {
+            this.data = this.buildDefaultData();
+            await this.persistDataNow();
+        }
+
+        this.sortTransactions();
+        this.saveLocalCache();
+        this.bootstrapDefaults();
+        this.resetTransactionForm(false);
         this.renderAll();
     }
 
@@ -162,22 +303,61 @@ class WebBookkeepingApp {
         return normalized;
     }
 
-    loadData() {
+    loadLocalCache() {
         try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (!raw) {
-                return this.buildDefaultData();
-            }
+            const raw = localStorage.getItem(LOCAL_CACHE_KEY);
+            if (!raw) return this.buildDefaultData();
             return this.normalizeData(JSON.parse(raw));
         } catch (error) {
-            console.error("加载数据失败，已回退为默认数据：", error);
+            console.error("加载本地缓存失败，已回退默认数据：", error);
             return this.buildDefaultData();
         }
     }
 
-    saveData() {
+    saveLocalCache() {
+        localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(this.data));
+    }
+
+    saveData({ immediate = false } = {}) {
         this.data.meta.updatedAt = new Date().toISOString();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data));
+        this.saveLocalCache();
+
+        if (!this.user || !this.supabase) return;
+
+        if (immediate) {
+            this.persistDataNow().catch((error) => {
+                console.error("云端保存失败：", error);
+                this.showToast("云端保存失败，请稍后重试。", "error");
+            });
+            return;
+        }
+
+        clearTimeout(this.saveTimer);
+        this.saveTimer = setTimeout(() => {
+            this.persistDataNow().catch((error) => {
+                console.error("云端保存失败：", error);
+                this.showToast("云端保存失败，请稍后重试。", "error");
+            });
+        }, 400);
+    }
+
+    async persistDataNow() {
+        if (!this.user || !this.supabase) return;
+        const payload = this.normalizeData(this.data);
+        const { error } = await this.supabase
+            .from(REMOTE_TABLE)
+            .upsert(
+                {
+                    user_id: this.user.id,
+                    payload,
+                    updated_at: new Date().toISOString()
+                },
+                { onConflict: "user_id" }
+            );
+
+        if (error) {
+            throw error;
+        }
     }
 
     cacheElements() {
@@ -185,6 +365,16 @@ class WebBookkeepingApp {
         this.tabPanels = Array.from(document.querySelectorAll(".tab-panel"));
 
         this.el = {
+            appShell: document.getElementById("appShell"),
+            authGate: document.getElementById("authGate"),
+            authHint: document.getElementById("authHint"),
+            authEmail: document.getElementById("authEmail"),
+            authPassword: document.getElementById("authPassword"),
+            loginBtn: document.getElementById("loginBtn"),
+            registerBtn: document.getElementById("registerBtn"),
+            logoutBtn: document.getElementById("logoutBtn"),
+            authUserLabel: document.getElementById("authUserLabel"),
+
             quickAddBtn: document.getElementById("quickAddBtn"),
             overviewMonth: document.getElementById("overviewMonth"),
             overviewMonthLabel: document.getElementById("overviewMonthLabel"),
@@ -253,8 +443,36 @@ class WebBookkeepingApp {
         });
 
         this.el.quickAddBtn.addEventListener("click", () => {
+            if (!this.ensureAuthenticated()) return;
             this.switchTab("transactions");
             this.el.txAmount.focus();
+        });
+
+        this.el.loginBtn.addEventListener("click", () => {
+            this.loginWithPassword().catch((error) => {
+                console.error(error);
+                this.showToast("登录失败，请稍后重试。", "error");
+            });
+        });
+        this.el.registerBtn.addEventListener("click", () => {
+            this.registerWithPassword().catch((error) => {
+                console.error(error);
+                this.showToast("注册失败，请稍后重试。", "error");
+            });
+        });
+        this.el.logoutBtn.addEventListener("click", () => {
+            this.logout().catch((error) => {
+                console.error(error);
+                this.showToast("退出失败，请稍后重试。", "error");
+            });
+        });
+        this.el.authPassword.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                this.loginWithPassword().catch((error) => {
+                    console.error(error);
+                    this.showToast("登录失败，请稍后重试。", "error");
+                });
+            }
         });
 
         this.el.overviewMonth.addEventListener("change", () => this.renderOverview());
@@ -328,11 +546,142 @@ class WebBookkeepingApp {
             "resize",
             debounce(() => {
                 const overviewPanel = document.getElementById("overview");
-                if (overviewPanel?.classList.contains("active")) {
+                if (overviewPanel?.classList.contains("active") && this.user) {
                     this.renderOverviewCharts();
                 }
             }, 260)
         );
+    }
+
+    async loginWithPassword() {
+        if (!this.authConfigured || !this.supabase) {
+            this.showToast("未配置 Supabase，请先修改配置文件。", "error");
+            return;
+        }
+
+        const email = this.el.authEmail.value.trim();
+        const password = this.el.authPassword.value;
+        if (!this.validateAuthInput(email, password)) return;
+
+        this.setAuthButtonsLoading(true);
+        this.setAuthMessage("正在登录...");
+
+        const { error } = await this.supabase.auth.signInWithPassword({ email, password });
+        this.setAuthButtonsLoading(false);
+
+        if (error) {
+            this.setAuthMessage(error.message || "登录失败，请检查邮箱和密码。");
+            this.showToast(`登录失败：${error.message || "请检查凭证"}`, "error");
+            return;
+        }
+
+        this.el.authPassword.value = "";
+        this.showToast("登录请求成功。", "success");
+    }
+
+    async registerWithPassword() {
+        if (!this.authConfigured || !this.supabase) {
+            this.showToast("未配置 Supabase，请先修改配置文件。", "error");
+            return;
+        }
+
+        const email = this.el.authEmail.value.trim();
+        const password = this.el.authPassword.value;
+        if (!this.validateAuthInput(email, password)) return;
+
+        this.setAuthButtonsLoading(true);
+        this.setAuthMessage("正在注册...");
+
+        const redirectTo = `${window.location.origin}${window.location.pathname}`;
+        const { data, error } = await this.supabase.auth.signUp({
+            email,
+            password,
+            options: {
+                emailRedirectTo: redirectTo
+            }
+        });
+
+        this.setAuthButtonsLoading(false);
+
+        if (error) {
+            this.setAuthMessage(error.message || "注册失败，请稍后重试。");
+            this.showToast(`注册失败：${error.message || "请稍后重试"}`, "error");
+            return;
+        }
+
+        this.el.authPassword.value = "";
+        if (data?.session) {
+            this.showToast("注册并登录成功。", "success");
+            return;
+        }
+        this.setAuthMessage("注册成功，请到邮箱完成验证后再登录。");
+        this.showToast("注册成功，请先验证邮箱。", "success");
+    }
+
+    async logout() {
+        if (!this.supabase) return;
+        if (!this.user) return;
+
+        this.setAuthButtonsLoading(true);
+        const { error } = await this.supabase.auth.signOut();
+        this.setAuthButtonsLoading(false);
+
+        if (error) {
+            this.showToast(`退出失败：${error.message || "请重试"}`, "error");
+            return;
+        }
+    }
+
+    validateAuthInput(email, password) {
+        const emailReg = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailReg.test(email)) {
+            this.showToast("请输入有效邮箱地址。", "error");
+            return false;
+        }
+        if (!password || password.length < 6) {
+            this.showToast("密码至少 6 位。", "error");
+            return false;
+        }
+        return true;
+    }
+
+    setAuthButtonsLoading(isLoading) {
+        const hasUser = Boolean(this.user);
+        this.el.loginBtn.disabled = isLoading || hasUser || !this.authConfigured;
+        this.el.registerBtn.disabled = isLoading || hasUser || !this.authConfigured;
+        this.el.logoutBtn.disabled = isLoading || !hasUser;
+    }
+
+    setAuthMessage(message) {
+        this.authStateMessage = message;
+        if (this.el.authHint) {
+            this.el.authHint.textContent = message;
+        }
+    }
+
+    setAppLocked(locked) {
+        this.el.appShell.classList.toggle("locked", locked);
+        this.el.authGate.classList.toggle("active", locked);
+        this.el.quickAddBtn.disabled = locked;
+        this.el.overviewMonth.disabled = locked;
+    }
+
+    updateAuthUi() {
+        if (this.user) {
+            this.el.authUserLabel.textContent = `已登录：${this.user.email || "未知用户"}`;
+            this.el.logoutBtn.hidden = false;
+        } else {
+            this.el.authUserLabel.textContent = "未登录";
+            this.el.logoutBtn.hidden = true;
+        }
+    }
+
+    ensureAuthenticated(showPrompt = true) {
+        if (this.user) return true;
+        if (showPrompt) {
+            this.showToast("请先登录后操作。", "error");
+        }
+        return false;
     }
 
     bootstrapDefaults() {
@@ -473,6 +822,8 @@ class WebBookkeepingApp {
     }
 
     handleSaveTransaction() {
+        if (!this.ensureAuthenticated()) return;
+
         const date = this.el.txDate.value;
         const type = this.el.txType.value;
         const amount = this.normalizeMoney(this.el.txAmount.value);
@@ -563,6 +914,7 @@ class WebBookkeepingApp {
     }
 
     editTransaction(transactionId) {
+        if (!this.ensureAuthenticated()) return;
         const transaction = this.data.transactions.find((item) => item.id === transactionId);
         if (!transaction) {
             this.showToast("流水记录不存在", "error");
@@ -587,6 +939,7 @@ class WebBookkeepingApp {
     }
 
     deleteTransaction(transactionId) {
+        if (!this.ensureAuthenticated()) return;
         const transaction = this.data.transactions.find((item) => item.id === transactionId);
         if (!transaction) {
             this.showToast("流水记录不存在", "error");
@@ -925,6 +1278,8 @@ class WebBookkeepingApp {
     }
 
     handleSaveBudget() {
+        if (!this.ensureAuthenticated()) return;
+
         const month = this.el.budgetMonth.value;
         const categoryId = this.el.budgetCategory.value;
         const amount = this.normalizeMoney(this.el.budgetAmount.value);
@@ -975,6 +1330,7 @@ class WebBookkeepingApp {
     }
 
     removeBudget(budgetId) {
+        if (!this.ensureAuthenticated()) return;
         const target = this.data.budgets.find((budget) => budget.id === budgetId);
         if (!target) {
             this.showToast("预算记录不存在", "error");
@@ -1117,6 +1473,7 @@ class WebBookkeepingApp {
     }
 
     addAccount() {
+        if (!this.ensureAuthenticated()) return;
         const name = this.el.newAccountName.value.trim();
         const icon = this.el.newAccountIcon.value.trim() || "🏦";
         const color = this.el.newAccountColor.value || "#6366f1";
@@ -1154,6 +1511,7 @@ class WebBookkeepingApp {
     }
 
     removeAccount(accountId) {
+        if (!this.ensureAuthenticated()) return;
         const account = this.getAccountById(accountId);
         if (!account) {
             this.showToast("账户不存在", "error");
@@ -1180,6 +1538,7 @@ class WebBookkeepingApp {
     }
 
     addCategory() {
+        if (!this.ensureAuthenticated()) return;
         const name = this.el.newCategoryName.value.trim();
         const type = this.el.newCategoryType.value;
         const icon = this.el.newCategoryIcon.value.trim() || (type === "income" ? "💰" : "🧾");
@@ -1216,6 +1575,7 @@ class WebBookkeepingApp {
     }
 
     removeCategory(categoryId) {
+        if (!this.ensureAuthenticated()) return;
         const category = this.getCategoryById(categoryId);
         if (!category) {
             this.showToast("分类不存在", "error");
@@ -1251,10 +1611,12 @@ class WebBookkeepingApp {
     }
 
     exportData() {
+        if (!this.ensureAuthenticated()) return;
         const exportedAt = new Date().toISOString();
         const payload = {
             ...this.data,
-            exportedAt
+            exportedAt,
+            userEmail: this.user?.email || ""
         };
         const dataText = JSON.stringify(payload, null, 2);
         const blob = new Blob([dataText], { type: "application/json" });
@@ -1274,11 +1636,17 @@ class WebBookkeepingApp {
     }
 
     triggerImport() {
+        if (!this.ensureAuthenticated()) return;
         this.el.importFileInput.value = "";
         this.el.importFileInput.click();
     }
 
     importDataFromFile(event) {
+        if (!this.ensureAuthenticated()) {
+            event.target.value = "";
+            return;
+        }
+
         const file = event.target.files?.[0];
         if (!file) return;
 
@@ -1297,7 +1665,7 @@ class WebBookkeepingApp {
 
                 this.data = this.normalizeData(parsed);
                 this.sortTransactions();
-                this.saveData();
+                this.saveData({ immediate: true });
                 this.bootstrapDefaults();
                 this.resetTransactionForm(false);
                 this.renderAll();
@@ -1317,6 +1685,7 @@ class WebBookkeepingApp {
     }
 
     clearAllData() {
+        if (!this.ensureAuthenticated()) return;
         const step1 = window.confirm("确认清空所有数据吗？此操作不可恢复。");
         if (!step1) return;
 
@@ -1324,7 +1693,7 @@ class WebBookkeepingApp {
         if (!step2) return;
 
         this.data = this.buildDefaultData();
-        this.saveData();
+        this.saveData({ immediate: true });
         this.bootstrapDefaults();
         this.resetTransactionForm(false);
         this.renderAll();
@@ -1340,14 +1709,17 @@ class WebBookkeepingApp {
         const lastUpdate = this.data.meta?.updatedAt
             ? new Date(this.data.meta.updatedAt).toLocaleString("zh-CN")
             : "-";
+        const userEmail = this.user?.email || "未登录";
 
         this.el.dataStats.innerHTML = `
+            <div>当前用户：${this.escapeHtml(userEmail)}</div>
             <div>流水条数：${transactionCount}</div>
             <div>预算条数：${budgetCount}</div>
             <div>账户数量：${accountCount}</div>
             <div>分类数量：${categoryCount}</div>
             <div>最近一笔：${latestTransaction}</div>
             <div>最后更新：${lastUpdate}</div>
+            <div>存储位置：Supabase 云端 + 浏览器缓存</div>
         `;
 
         const lastBackup = localStorage.getItem(LAST_EXPORT_KEY);
@@ -1435,7 +1807,7 @@ class WebBookkeepingApp {
         clearTimeout(this.toastTimer);
         this.toastTimer = setTimeout(() => {
             this.el.toast.className = "toast";
-        }, 2200);
+        }, 2400);
     }
 
     formatCurrency(value) {
@@ -1506,6 +1878,7 @@ class WebBookkeepingApp {
     }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
     window.app = new WebBookkeepingApp();
+    await window.app.init();
 });
