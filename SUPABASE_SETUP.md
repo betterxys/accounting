@@ -41,7 +41,14 @@ with check ((select auth.uid()) = user_id);
 - `Project URL`
 - `Publishable key`（或兼容期内的 `anon key`）
 
-然后在系统「设置 -> 云同步（Supabase）」中填写并保存。
+然后修改 `script.js` 顶部的绑定配置常量：
+
+```js
+const BOUND_SUPABASE_CONFIG = Object.freeze({
+  supabaseUrl: 'https://<project-ref>.supabase.co',
+  supabasePublishableKey: 'sb_publishable_xxx'
+});
+```
 
 ## 3) 登录与同步
 

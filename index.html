@@ -190,14 +190,7 @@
                     <div class="setting-group">
                         <h3>☁️ 云同步（Supabase）</h3>
                         <div class="sync-config-grid">
-                            <div class="sync-field">
-                                <label for="supabaseUrl">Supabase URL</label>
-                                <input id="supabaseUrl" class="form-input" type="text" placeholder="https://xxxx.supabase.co">
-                            </div>
-                            <div class="sync-field">
-                                <label for="supabasePublishableKey">Publishable Key</label>
-                                <input id="supabasePublishableKey" class="form-input" type="text" placeholder="sb_publishable_xxx 或 anon key">
-                            </div>
+                            <p class="sync-bound-info">当前为项目绑定配置模式：Supabase URL / Key 由系统内置，不需要手动填写。</p>
                             <div class="sync-field">
                                 <label for="supabaseEmail">登录邮箱（Magic Link）</label>
                                 <input id="supabaseEmail" class="form-input" type="email" placeholder="name@example.com">
@@ -210,7 +203,6 @@
                             </div>
                         </div>
                         <div class="sync-actions">
-                            <button id="saveSyncConfigBtn" class="btn btn-secondary">💾 保存同步配置</button>
                             <button id="supabaseLoginBtn" class="btn btn-secondary">🔐 发送登录链接</button>
                             <button id="supabaseLogoutBtn" class="btn btn-danger">🚪 退出登录</button>
                             <button id="syncNowBtn" class="btn btn-primary">🔄 立即同步</button>

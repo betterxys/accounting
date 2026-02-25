@@ -456,6 +456,14 @@ body {
     margin-bottom: 15px;
 }
 
+.sync-bound-info {
+    color: #4f5d75;
+    background: #eef3ff;
+    border: 1px solid #d6e2ff;
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
 .sync-field {
     display: grid;
     gap: 6px;

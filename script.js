@@ -4,6 +4,11 @@ const APP_KV_STORE = 'key_value_store';
 const APP_DATA_KEY = 'app_data';
 const APP_SYNC_META_KEY = 'sync_meta';
 const SUPABASE_SYNC_TABLE = 'asset_documents';
+const BOUND_SUPABASE_CONFIG = Object.freeze({
+    // 绑定配置模式：在部署前填入你的 Supabase 项目配置
+    supabaseUrl: '',
+    supabasePublishableKey: ''
+});
 
 class IndexedDBStorageAdapter {
     constructor() {
@@ -80,8 +85,10 @@ class SupabaseSyncService {
     }
 
     isConfigured() {
-        const syncSettings = this.app.data.settings.sync || {};
-        return Boolean(syncSettings.supabaseUrl && syncSettings.supabasePublishableKey);
+        return Boolean(
+            BOUND_SUPABASE_CONFIG.supabaseUrl &&
+            BOUND_SUPABASE_CONFIG.supabasePublishableKey
+        );
     }
 
     async init() {
@@ -105,10 +112,9 @@ class SupabaseSyncService {
             throw new Error('Supabase SDK 未加载，请检查网络后刷新页面');
         }
 
-        const syncSettings = this.app.data.settings.sync || {};
         this.client = window.supabase.createClient(
-            syncSettings.supabaseUrl,
-            syncSettings.supabasePublishableKey,
+            BOUND_SUPABASE_CONFIG.supabaseUrl,
+            BOUND_SUPABASE_CONFIG.supabasePublishableKey,
             {
                 auth: {
                     persistSession: true,
@@ -151,32 +157,13 @@ class SupabaseSyncService {
     }
 
     getAuthStatusText() {
-        if (!this.isConfigured()) return '未配置';
+        if (!this.isConfigured()) return '项目未绑定 Supabase 配置';
         if (!this.user) return '已配置，未登录';
         return `已登录：${this.user.email || this.user.id}`;
     }
 
     getRuntimeStatusText() {
         return this.runtimeStatus;
-    }
-
-    async saveConfig(config) {
-        this.app.data.settings.sync = {
-            ...this.app.data.settings.sync,
-            ...config
-        };
-
-        await this.app.saveData({ markDirty: false, triggerAutoSync: false });
-
-        this.client = null;
-        this.user = null;
-        if (this.authSubscription) {
-            this.authSubscription.unsubscribe();
-            this.authSubscription = null;
-        }
-
-        await this.init();
-        this.app.renderSettings();
     }
 
     async sendMagicLink(email) {
@@ -293,7 +280,7 @@ class SupabaseSyncService {
         }
 
         if (!this.isConfigured()) {
-            return { ok: false, message: '请先保存 Supabase 配置' };
+            return { ok: false, message: '项目尚未绑定 Supabase 配置，请联系管理员部署配置' };
         }
 
         this.ensureClient();
@@ -469,8 +456,6 @@ class CoupleAssetTracker {
 
     getDefaultSyncSettings() {
         return {
-            supabaseUrl: '',
-            supabasePublishableKey: '',
             email: '',
             autoSync: false
         };
@@ -684,10 +669,18 @@ class CoupleAssetTracker {
         document.getElementById('exportDataBtn').addEventListener('click', () => this.exportData());
         document.getElementById('importDataBtn').addEventListener('click', () => this.importData());
         document.getElementById('clearDataBtn').addEventListener('click', () => this.clearData());
-        document.getElementById('saveSyncConfigBtn').addEventListener('click', () => this.saveSyncConfig());
         document.getElementById('supabaseLoginBtn').addEventListener('click', () => this.sendSyncMagicLink());
         document.getElementById('supabaseLogoutBtn').addEventListener('click', () => this.logoutSync());
         document.getElementById('syncNowBtn').addEventListener('click', () => this.syncNow());
+
+        const autoSyncToggle = document.getElementById('autoSyncToggle');
+        if (autoSyncToggle) {
+            autoSyncToggle.addEventListener('change', async (event) => {
+                this.data.settings.sync.autoSync = Boolean(event.target.checked);
+                await this.saveData({ markDirty: false, triggerAutoSync: false });
+                this.updateSyncStatusDisplay();
+            });
+        }
 
         // 弹窗事件
         document.getElementById('closeModal').addEventListener('click', () => this.hideModal());
@@ -1383,36 +1376,13 @@ class CoupleAssetTracker {
             `${lastRecord.year}年${lastRecord.month}月` : '--';
 
         const syncSettings = this.data.settings.sync || this.getDefaultSyncSettings();
-        const urlInput = document.getElementById('supabaseUrl');
-        const keyInput = document.getElementById('supabasePublishableKey');
         const emailInput = document.getElementById('supabaseEmail');
         const autoSyncToggle = document.getElementById('autoSyncToggle');
 
-        if (urlInput) urlInput.value = syncSettings.supabaseUrl || '';
-        if (keyInput) keyInput.value = syncSettings.supabasePublishableKey || '';
         if (emailInput) emailInput.value = syncSettings.email || '';
         if (autoSyncToggle) autoSyncToggle.checked = Boolean(syncSettings.autoSync);
 
         this.updateSyncStatusDisplay();
-    }
-
-    async saveSyncConfig() {
-        const supabaseUrl = document.getElementById('supabaseUrl').value.trim();
-        const supabasePublishableKey = document.getElementById('supabasePublishableKey').value.trim();
-        const email = document.getElementById('supabaseEmail').value.trim();
-        const autoSync = document.getElementById('autoSyncToggle').checked;
-
-        try {
-            await this.syncService.saveConfig({
-                supabaseUrl,
-                supabasePublishableKey,
-                email,
-                autoSync
-            });
-            alert('同步配置已保存');
-        } catch (error) {
-            alert(`保存同步配置失败：${error.message}`);
-        }
     }
 
     async sendSyncMagicLink() {
