@@ -4,6 +4,8 @@ const APP_KV_STORE = 'key_value_store';
 const APP_DATA_KEY = 'app_data';
 const APP_SYNC_META_KEY = 'sync_meta';
 const SUPABASE_SYNC_TABLE = 'asset_documents';
+const FX_API_BASE_URL = 'https://api.frankfurter.app';
+const FX_BASE_CURRENCY = 'CNY';
 const BOUND_SUPABASE_CONFIG = Object.freeze({
     // 绑定配置模式：在部署前填入你的 Supabase 项目配置
     supabaseUrl: 'https://agkbbktmeyvjbbvswmja.supabase.co',
@@ -417,6 +419,9 @@ class CoupleAssetTracker {
                 sync: this.getDefaultSyncSettings()
             }
         };
+        this.fxRatesByDate = {};
+        this.fxFetchPromises = new Map();
+        this.saveButtonBaseText = '💾 保存记录';
         this.charts = {};
         this.resizeTimer = null;
         this.init().catch(error => {
@@ -430,6 +435,8 @@ class CoupleAssetTracker {
         this.initEventListeners();
         this.renderAccountInputs();
         this.updateCurrentMonth();
+        this.setFxStatus('idle', '汇率：请选择记账日期后自动获取（日汇率）');
+        this.setSaveButtonAvailability(false, '请选择记账日期');
         this.initCharts();
         this.updateOverview();
         this.renderSettings();
@@ -520,6 +527,172 @@ class CoupleAssetTracker {
             const ownerId = account.ownerId || 'both';
             return ownerId === 'both' || ownerId === userId;
         });
+    }
+
+    getTrackedCurrencies() {
+        const currencies = new Set([FX_BASE_CURRENCY]);
+        this.data.accountTypes.forEach(account => {
+            currencies.add(this.normalizeCurrency(account.currency));
+        });
+        return Array.from(currencies);
+    }
+
+    setFxStatus(state, message) {
+        const statusElement = document.getElementById('recordFxStatus');
+        if (!statusElement) return;
+        statusElement.className = `fx-status ${state}`;
+        statusElement.textContent = message;
+    }
+
+    setSaveButtonAvailability(canSave, reason = '') {
+        const button = document.getElementById('saveRecordBtn');
+        if (!button) return;
+        button.disabled = !canSave;
+        if (canSave) {
+            button.textContent = this.saveButtonBaseText;
+        } else {
+            button.textContent = `⏳ ${reason || '汇率加载中'}`;
+        }
+    }
+
+    getActiveRecordDate() {
+        const input = document.getElementById('recordDate');
+        return input ? input.value : '';
+    }
+
+    getFxSummaryText(rateEntry) {
+        if (!rateEntry) return '汇率：请先选择记账日期';
+        const quoteParts = Object.keys(rateEntry.rates || {})
+            .filter(currency => currency !== FX_BASE_CURRENCY)
+            .sort()
+            .map(currency => {
+                const rate = Number(rateEntry.rates[currency]);
+                const effectiveDate = rateEntry.effectiveDates ? rateEntry.effectiveDates[currency] : '';
+                return `${currency}/CNY=${rate.toFixed(4)}${effectiveDate ? `（${effectiveDate}）` : ''}`;
+            });
+
+        if (quoteParts.length === 0) {
+            return '汇率：全部为人民币资产，无需换算';
+        }
+        return `汇率：${quoteParts.join('，')}`;
+    }
+
+    async fetchDailyRate(date, fromCurrency) {
+        const url = `${FX_API_BASE_URL}/${encodeURIComponent(date)}?from=${encodeURIComponent(fromCurrency)}&to=${FX_BASE_CURRENCY}`;
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`${fromCurrency} 汇率接口异常（${response.status}）`);
+        }
+        const payload = await response.json();
+        const rate = Number(payload && payload.rates ? payload.rates[FX_BASE_CURRENCY] : NaN);
+        if (!Number.isFinite(rate) || rate <= 0) {
+            throw new Error(`${fromCurrency} 无法获取可用汇率`);
+        }
+        return {
+            rate,
+            effectiveDate: payload && payload.date ? payload.date : date
+        };
+    }
+
+    async ensureFxRatesForDate(recordDate) {
+        if (!recordDate) {
+            return {
+                requestedDate: '',
+                provider: 'frankfurter',
+                baseCurrency: FX_BASE_CURRENCY,
+                rates: { [FX_BASE_CURRENCY]: 1 },
+                effectiveDates: {}
+            };
+        }
+
+        if (!this.fxRatesByDate[recordDate]) {
+            this.fxRatesByDate[recordDate] = {
+                requestedDate: recordDate,
+                provider: 'frankfurter',
+                baseCurrency: FX_BASE_CURRENCY,
+                rates: { [FX_BASE_CURRENCY]: 1 },
+                effectiveDates: { [FX_BASE_CURRENCY]: recordDate }
+            };
+        }
+
+        const rateEntry = this.fxRatesByDate[recordDate];
+        const missingCurrencies = this.getTrackedCurrencies()
+            .filter(currency => currency !== FX_BASE_CURRENCY)
+            .filter(currency => !(currency in rateEntry.rates));
+
+        if (missingCurrencies.length === 0) {
+            return rateEntry;
+        }
+
+        const promiseKey = `${recordDate}:${missingCurrencies.slice().sort().join(',')}`;
+        if (this.fxFetchPromises.has(promiseKey)) {
+            return this.fxFetchPromises.get(promiseKey);
+        }
+
+        this.setFxStatus('loading', `汇率加载中：${missingCurrencies.join(', ')}`);
+        const task = Promise.all(missingCurrencies.map(async currency => {
+            const result = await this.fetchDailyRate(recordDate, currency);
+            rateEntry.rates[currency] = result.rate;
+            rateEntry.effectiveDates[currency] = result.effectiveDate;
+        }))
+            .then(() => {
+                this.setFxStatus('ready', this.getFxSummaryText(rateEntry));
+                return rateEntry;
+            })
+            .catch(error => {
+                this.setFxStatus('error', `汇率获取失败：${error.message}`);
+                throw error;
+            })
+            .finally(() => {
+                this.fxFetchPromises.delete(promiseKey);
+            });
+
+        this.fxFetchPromises.set(promiseKey, task);
+        return task;
+    }
+
+    collectConvertedTotals(recordDate) {
+        const users = this.data.settings.users;
+        const rateEntry = this.fxRatesByDate[recordDate] || {
+            rates: { [FX_BASE_CURRENCY]: 1 },
+            effectiveDates: { [FX_BASE_CURRENCY]: recordDate }
+        };
+        const balances = {};
+        const totals = {};
+        const missingCurrencies = new Set();
+        let familyTotal = 0;
+
+        users.forEach(user => {
+            balances[user.id] = {};
+            let userTotal = 0;
+
+            this.getUserAccounts(user.id).forEach(account => {
+                const input = document.querySelector(`[data-user="${user.id}"][data-account="${account.id}"]`);
+                const amount = input ? (parseFloat(input.value) || 0) : 0;
+                balances[user.id][account.id] = amount;
+
+                const currency = this.normalizeCurrency(account.currency);
+                const rate = currency === FX_BASE_CURRENCY ? 1 : rateEntry.rates[currency];
+                if (!Number.isFinite(rate) || rate <= 0) {
+                    missingCurrencies.add(currency);
+                    return;
+                }
+
+                userTotal += amount * rate;
+            });
+
+            totals[user.id] = userTotal;
+            familyTotal += userTotal;
+        });
+
+        totals.combined = familyTotal;
+
+        return {
+            balances,
+            totals,
+            rateEntry,
+            missingCurrencies: Array.from(missingCurrencies)
+        };
     }
 
     getDefaultUsers() {
@@ -802,6 +975,8 @@ class CoupleAssetTracker {
                 this.initAnalysisCharts();
                 this.updateAnalysisCharts();
             }, 200);
+        } else if (tabName === 'record') {
+            this.updateRecordTotals();
         }
     }
 
@@ -859,6 +1034,8 @@ class CoupleAssetTracker {
     initNewRecord() {
         const today = new Date().toISOString().split('T')[0];
         document.getElementById('recordDate').value = today;
+        this.saveButtonBaseText = '💾 保存记录';
+        document.getElementById('saveRecordBtn').textContent = this.saveButtonBaseText;
         
         // 清空所有输入
         this.clearRecordInputs();
@@ -873,7 +1050,10 @@ class CoupleAssetTracker {
 
     loadRecordByDate() {
         const selectedDate = document.getElementById('recordDate').value;
-        if (!selectedDate) return;
+        if (!selectedDate) {
+            this.updateRecordTotals();
+            return;
+        }
 
         const date = new Date(selectedDate);
         const recordId = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -885,14 +1065,15 @@ class CoupleAssetTracker {
             // 加载已有记录
             this.loadRecordData(existingRecord);
             this.showRecordStatus('编辑模式：正在修改' + existingRecord.year + '年' + existingRecord.month + '月的记录', 'edit');
-            document.getElementById('saveRecordBtn').textContent = '💾 更新记录';
+            this.saveButtonBaseText = '💾 更新记录';
         } else {
             // 清空输入，准备新记录
             this.clearRecordInputs();
             this.showRecordStatus('新记录模式：将创建' + date.getFullYear() + '年' + (date.getMonth() + 1) + '月的记录', 'new');
-            document.getElementById('saveRecordBtn').textContent = '💾 保存记录';
+            this.saveButtonBaseText = '💾 保存记录';
         }
         
+        document.getElementById('saveRecordBtn').textContent = this.saveButtonBaseText;
         this.updateRecordTotals();
     }
 
@@ -942,25 +1123,41 @@ class CoupleAssetTracker {
         recordDate.parentNode.insertBefore(statusDiv, recordDate.nextSibling);
     }
 
-    updateRecordTotals() {
-        const users = this.data.settings.users;
-        let familyTotal = 0;
+    async updateRecordTotals() {
+        const recordDate = this.getActiveRecordDate();
+        if (!recordDate) {
+            this.setFxStatus('idle', '汇率：请选择记账日期后自动获取（日汇率）');
+            this.setSaveButtonAvailability(false, '请选择记账日期');
+            return;
+        }
 
-        users.forEach(user => {
-            let userTotal = 0;
-            document.querySelectorAll(`[data-user="${user.id}"]`).forEach(input => {
-                const value = parseFloat(input.value) || 0;
-                userTotal += value;
+        try {
+            await this.ensureFxRatesForDate(recordDate);
+        } catch (error) {
+            console.warn('汇率加载失败:', error.message);
+        }
+
+        const summary = this.collectConvertedTotals(recordDate);
+        if (summary.missingCurrencies.length > 0) {
+            this.data.settings.users.forEach(user => {
+                document.getElementById(`${user.id}RecordTotal`).textContent = '--';
             });
-            
-            document.getElementById(`${user.id}RecordTotal`).textContent = `¥${userTotal.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
-            familyTotal += userTotal;
-        });
+            document.getElementById('familyRecordTotal').textContent = '--';
+            this.setSaveButtonAvailability(false, '缺少汇率');
+            this.setFxStatus('error', `汇率缺失：${summary.missingCurrencies.join(', ')}`);
+            return;
+        }
 
-        document.getElementById('familyRecordTotal').textContent = `¥${familyTotal.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
+        this.data.settings.users.forEach(user => {
+            const userTotal = summary.totals[user.id] || 0;
+            document.getElementById(`${user.id}RecordTotal`).textContent = `¥${userTotal.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
+        });
+        document.getElementById('familyRecordTotal').textContent = `¥${summary.totals.combined.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
+        this.setFxStatus('ready', this.getFxSummaryText(summary.rateEntry));
+        this.setSaveButtonAvailability(true);
     }
 
-    saveRecord() {
+    async saveRecord() {
         const recordDate = document.getElementById('recordDate').value;
         if (!recordDate) {
             alert('请选择记账日期');
@@ -970,27 +1167,21 @@ class CoupleAssetTracker {
         const date = new Date(recordDate);
         const recordId = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         
-        // 收集余额数据
-        const balances = {};
-        const totals = {};
-        let familyTotal = 0;
+        try {
+            await this.ensureFxRatesForDate(recordDate);
+        } catch (error) {
+            alert(`汇率获取失败：${error.message}`);
+            return;
+        }
 
-        this.data.settings.users.forEach(user => {
-            balances[user.id] = {};
-            let userTotal = 0;
+        const summary = this.collectConvertedTotals(recordDate);
+        if (summary.missingCurrencies.length > 0) {
+            alert(`缺少币种汇率：${summary.missingCurrencies.join(', ')}，请稍后重试`);
+            return;
+        }
 
-            this.getUserAccounts(user.id).forEach(account => {
-                const input = document.querySelector(`[data-user="${user.id}"][data-account="${account.id}"]`);
-                const amount = input ? (parseFloat(input.value) || 0) : 0;
-                balances[user.id][account.id] = amount;
-                userTotal += amount;
-            });
-
-            totals[user.id] = userTotal;
-            familyTotal += userTotal;
-        });
-
-        totals.combined = familyTotal;
+        const balances = summary.balances;
+        const totals = summary.totals;
 
         // 计算相比上月变化
         const changes = this.calculateChanges(totals);
@@ -1004,6 +1195,13 @@ class CoupleAssetTracker {
             balances,
             totals,
             changes,
+            fxSnapshot: {
+                requestedDate: summary.rateEntry.requestedDate || recordDate,
+                provider: summary.rateEntry.provider || 'frankfurter',
+                baseCurrency: summary.rateEntry.baseCurrency || FX_BASE_CURRENCY,
+                rates: { ...(summary.rateEntry.rates || {}) },
+                effectiveDates: { ...(summary.rateEntry.effectiveDates || {}) }
+            },
             createdAt: new Date().toISOString()
         };
 
@@ -1321,14 +1519,22 @@ class CoupleAssetTracker {
         const labels = [];
         const data = [];
         const colors = [];
+        const latestRates = latestRecord.fxSnapshot && latestRecord.fxSnapshot.rates
+            ? latestRecord.fxSnapshot.rates
+            : { [FX_BASE_CURRENCY]: 1 };
 
         this.data.accountTypes.forEach(account => {
-            const amount = this.data.settings.users.reduce((sum, user) => {
-                return sum + (latestRecord.balances[user.id]?.[account.id] || 0);
+            const currency = this.normalizeCurrency(account.currency);
+            const rate = Number(latestRates[currency]) > 0
+                ? Number(latestRates[currency])
+                : (currency === FX_BASE_CURRENCY ? 1 : 1);
+            const amountInCny = this.data.settings.users.reduce((sum, user) => {
+                const rawAmount = latestRecord.balances[user.id]?.[account.id] || 0;
+                return sum + rawAmount * rate;
             }, 0);
 
-            labels.push(`${account.platform} · ${account.name} (${this.getCurrencyLabel(account.currency)})`);
-            data.push(amount);
+            labels.push(`${account.platform} · ${account.name}`);
+            data.push(amountInCny);
             colors.push(account.color || '#90a4ae');
         });
 
@@ -1981,7 +2187,8 @@ class CoupleAssetTracker {
         // 加载记录数据
         this.loadRecordData(record);
         this.showRecordStatus('编辑模式：正在修改' + record.year + '年' + record.month + '月的记录', 'edit');
-        document.getElementById('saveRecordBtn').textContent = '💾 更新记录';
+        this.saveButtonBaseText = '💾 更新记录';
+        document.getElementById('saveRecordBtn').textContent = this.saveButtonBaseText;
         
         // 更新总计显示
         this.updateRecordTotals();

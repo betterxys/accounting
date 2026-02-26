@@ -120,8 +120,11 @@
 
                     <!-- 总计和保存 -->
                     <div class="record-summary">
+                        <div id="recordFxStatus" class="fx-status">
+                            汇率：请选择记账日期后自动获取（日汇率）
+                        </div>
                         <div class="total-amount">
-                            家庭总资产: <span id="familyRecordTotal">¥0.00</span>
+                            家庭总资产（折合人民币）: <span id="familyRecordTotal">¥0.00</span>
                         </div>
                         <button id="saveRecordBtn" class="btn btn-primary btn-large">💾 保存记录</button>
                     </div>
@@ -180,7 +183,7 @@
                     <!-- 资产明细管理 -->
                     <div class="setting-group">
                         <h3>资产明细管理（平台 / 产品 / 币种 / 归属人）</h3>
-                        <p class="sync-bound-info">币种目前用于明细标识与筛查，不自动做汇率换算；家庭总资产默认按录入数值直接汇总。</p>
+                        <p class="sync-bound-info">系统会按记账日期自动查询日汇率（公开接口）并折算为人民币，用于总额和分析图表。</p>
                         <div id="accountTypesList" class="account-types">
                             <!-- 账户类型列表 -->
                         </div>

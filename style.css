@@ -65,6 +65,12 @@ body {
     touch-action: manipulation;
 }
 
+.btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.75;
+    transform: none !important;
+}
+
 .btn-primary {
     background: #4caf50;
     color: white;
@@ -378,6 +384,41 @@ body {
     border-radius: 12px;
     padding: 20px;
     text-align: center;
+}
+
+.fx-status {
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    text-align: left;
+    border: 1px solid #d6e2ff;
+    background: #eef3ff;
+    color: #445b87;
+}
+
+.fx-status.loading {
+    border-color: #ffe2a8;
+    background: #fff9e8;
+    color: #8a6100;
+}
+
+.fx-status.ready {
+    border-color: #cce8d2;
+    background: #edf8ef;
+    color: #1f6d36;
+}
+
+.fx-status.error {
+    border-color: #ffcdd2;
+    background: #fff0f2;
+    color: #b42318;
+}
+
+.fx-status.idle {
+    border-color: #d6e2ff;
+    background: #eef3ff;
+    color: #445b87;
 }
 
 .total-amount {
@@ -832,6 +873,10 @@ body {
     .total-amount {
         font-size: 1.2rem;
         margin-bottom: 12px;
+    }
+
+    .fx-status {
+        font-size: 0.8rem;
     }
 
     #saveRecordBtn {
