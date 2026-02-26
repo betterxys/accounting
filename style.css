@@ -315,11 +315,83 @@ body {
     gap: 15px;
 }
 
+.platform-group {
+    border: 1px solid #d9e2f2;
+    border-radius: 10px;
+    background: white;
+    overflow: hidden;
+}
+
+.platform-group-header {
+    width: 100%;
+    border: none;
+    background: linear-gradient(135deg, #f5f8ff 0%, #eff4ff 100%);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.platform-group-left,
+.platform-group-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.platform-group-icon {
+    font-size: 1rem;
+}
+
+.platform-group-name {
+    font-weight: 700;
+    color: #27364f;
+}
+
+.platform-group-count {
+    font-size: 0.72rem;
+    color: #5b6b87;
+    background: #e8eefc;
+    border-radius: 999px;
+    padding: 2px 8px;
+}
+
+.platform-group-total {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #1f6d36;
+}
+
+.platform-group-toggle {
+    color: #445b87;
+    transition: transform 0.2s ease;
+}
+
+.platform-group-products {
+    display: grid;
+    gap: 8px;
+    padding: 10px 12px 12px;
+}
+
+.platform-group.collapsed .platform-group-products {
+    display: none;
+}
+
+.platform-group.collapsed .platform-group-toggle {
+    transform: rotate(-90deg);
+}
+
 .account-input-group {
     display: grid;
     grid-template-columns: 30px minmax(160px, 1fr) auto 120px;
     align-items: center;
     gap: 8px 10px;
+    background: #f8fafc;
+    border: 1px solid #e5eaf4;
+    border-radius: 8px;
+    padding: 8px 10px;
 }
 
 .account-icon {
@@ -499,6 +571,65 @@ body {
     display: grid;
     gap: 10px;
     margin-bottom: 15px;
+}
+
+.settings-owner-group {
+    border: 1px solid #dce3f0;
+    border-radius: 10px;
+    background: white;
+    overflow: hidden;
+}
+
+.settings-owner-title {
+    padding: 10px 12px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #1f2a44;
+    background: linear-gradient(135deg, #f7f9ff 0%, #eef3ff 100%);
+    border-bottom: 1px solid #e4eaf7;
+}
+
+.settings-owner-platforms {
+    display: grid;
+}
+
+.settings-platform-group {
+    border-bottom: 1px solid #edf1f8;
+}
+
+.settings-platform-group:last-child {
+    border-bottom: none;
+}
+
+.settings-platform-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #fafcff;
+    border-bottom: 1px solid #edf1f8;
+}
+
+.settings-platform-icon {
+    font-size: 1rem;
+}
+
+.settings-platform-name {
+    font-weight: 600;
+    color: #344054;
+}
+
+.settings-platform-count {
+    margin-left: auto;
+    font-size: 0.72rem;
+    color: #667085;
+}
+
+.settings-platform-products {
+    display: grid;
+    gap: 8px;
+    padding: 8px;
+    background: #ffffff;
 }
 
 .account-type-item {
@@ -835,10 +966,26 @@ body {
         padding: 14px;
     }
 
+    .platform-group-header {
+        padding: 8px 10px;
+    }
+
+    .platform-group-count {
+        display: none;
+    }
+
+    .platform-group-products {
+        padding: 8px;
+    }
+
     .account-input-group {
         display: grid;
         grid-template-columns: 30px 1fr auto;
         gap: 8px 10px;
+    }
+
+    .account-label {
+        font-size: 0.9rem;
     }
 
     .account-label-wrap {
@@ -891,6 +1038,14 @@ body {
     .record-actions {
         width: 100%;
         justify-content: flex-end;
+    }
+
+    .settings-platform-header {
+        padding: 8px 10px;
+    }
+
+    .settings-platform-products {
+        padding: 6px;
     }
 
     .account-mgmt-actions {

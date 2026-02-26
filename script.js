@@ -422,6 +422,7 @@ class CoupleAssetTracker {
         this.fxRatesByDate = {};
         this.fxFetchPromises = new Map();
         this.saveButtonBaseText = '💾 保存记录';
+        this.platformCollapseState = {};
         this.charts = {};
         this.resizeTimer = null;
         this.init().catch(error => {
@@ -527,6 +528,45 @@ class CoupleAssetTracker {
             const ownerId = account.ownerId || 'both';
             return ownerId === 'both' || ownerId === userId;
         });
+    }
+
+    getPlatformGroupKey(userId, platform) {
+        return `${userId}:${platform}`;
+    }
+
+    isPlatformCollapsed(userId, platform) {
+        const key = this.getPlatformGroupKey(userId, platform);
+        return Boolean(this.platformCollapseState[key]);
+    }
+
+    setPlatformCollapsed(userId, platform, collapsed) {
+        const key = this.getPlatformGroupKey(userId, platform);
+        this.platformCollapseState[key] = Boolean(collapsed);
+    }
+
+    groupAccountsByPlatform(accounts) {
+        const platformMap = new Map();
+        (accounts || []).forEach(account => {
+            const platform = account.platform || '未分类平台';
+            if (!platformMap.has(platform)) {
+                platformMap.set(platform, {
+                    platform,
+                    icon: account.icon || '💼',
+                    color: account.color || '#607d8b',
+                    accounts: []
+                });
+            }
+            platformMap.get(platform).accounts.push(account);
+        });
+
+        return Array.from(platformMap.values())
+            .sort((a, b) => a.platform.localeCompare(b.platform, 'zh-CN'))
+            .map(group => ({
+                ...group,
+                accounts: group.accounts
+                    .slice()
+                    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN'))
+            }));
     }
 
     getTrackedCurrencies() {
@@ -659,12 +699,14 @@ class CoupleAssetTracker {
         };
         const balances = {};
         const totals = {};
+        const platformTotals = {};
         const missingCurrencies = new Set();
         let familyTotal = 0;
 
         users.forEach(user => {
             balances[user.id] = {};
             let userTotal = 0;
+            platformTotals[user.id] = {};
 
             this.getUserAccounts(user.id).forEach(account => {
                 const input = document.querySelector(`[data-user="${user.id}"][data-account="${account.id}"]`);
@@ -678,7 +720,9 @@ class CoupleAssetTracker {
                     return;
                 }
 
-                userTotal += amount * rate;
+                const converted = amount * rate;
+                userTotal += converted;
+                platformTotals[user.id][account.platform] = (platformTotals[user.id][account.platform] || 0) + converted;
             });
 
             totals[user.id] = userTotal;
@@ -690,6 +734,7 @@ class CoupleAssetTracker {
         return {
             balances,
             totals,
+            platformTotals,
             rateEntry,
             missingCurrencies: Array.from(missingCurrencies)
         };
@@ -1001,32 +1046,71 @@ class CoupleAssetTracker {
                 container.innerHTML = '<p class="empty-user-accounts">暂无资产明细，请到“设置 → 资产明细管理”添加。</p>';
                 return;
             }
+            const platformGroups = this.groupAccountsByPlatform(userAccounts);
 
-            userAccounts.forEach(account => {
-                const inputGroup = document.createElement('div');
-                inputGroup.className = 'account-input-group';
-                inputGroup.innerHTML = `
-                    <span class="account-icon">${account.icon}</span>
-                    <div class="account-label-wrap">
-                        <span class="account-platform">${account.platform}</span>
-                        <span class="account-label">${account.name}</span>
-                    </div>
-                    <span class="account-currency">${this.getCurrencyLabel(account.currency)}</span>
-                    <input 
-                        type="number" 
-                        step="0.01" 
-                        placeholder="0.00"
-                        class="form-input account-input"
-                        data-user="${user.id}"
-                        data-account="${account.id}"
-                    >
+            platformGroups.forEach(group => {
+                const collapsed = this.isPlatformCollapsed(user.id, group.platform);
+                const groupNode = document.createElement('div');
+                groupNode.className = `platform-group${collapsed ? ' collapsed' : ''}`;
+                groupNode.setAttribute('data-user', user.id);
+                groupNode.setAttribute('data-platform', group.platform);
+                groupNode.innerHTML = `
+                    <button type="button" class="platform-group-header" data-user="${user.id}" data-platform="${group.platform}">
+                        <span class="platform-group-left">
+                            <span class="platform-group-icon">${group.icon}</span>
+                            <span class="platform-group-name">${group.platform}</span>
+                            <span class="platform-group-count">${group.accounts.length}项</span>
+                        </span>
+                        <span class="platform-group-right">
+                            <span class="platform-group-total" data-user="${user.id}" data-platform="${group.platform}">¥0.00</span>
+                            <span class="platform-group-toggle">▾</span>
+                        </span>
+                    </button>
+                    <div class="platform-group-products"></div>
                 `;
-                container.appendChild(inputGroup);
-            });
 
-            // 添加输入事件监听
-            container.querySelectorAll('.account-input').forEach(input => {
-                input.addEventListener('input', () => this.updateRecordTotals());
+                const productsContainer = groupNode.querySelector('.platform-group-products');
+                group.accounts.forEach(account => {
+                    const inputGroup = document.createElement('div');
+                    inputGroup.className = 'account-input-group';
+                    inputGroup.innerHTML = `
+                        <span class="account-icon">${account.icon}</span>
+                        <span class="account-label">${account.name}</span>
+                        <span class="account-currency">${this.getCurrencyLabel(account.currency)}</span>
+                        <input 
+                            type="number" 
+                            step="0.01" 
+                            placeholder="0.00"
+                            class="form-input account-input"
+                            data-user="${user.id}"
+                            data-account="${account.id}"
+                        >
+                    `;
+                    productsContainer.appendChild(inputGroup);
+                });
+
+                container.appendChild(groupNode);
+            });
+        });
+
+        this.bindRecordPlatformToggleEvents();
+
+        // 添加输入事件监听
+        document.querySelectorAll('.account-input').forEach(input => {
+            input.addEventListener('input', () => this.updateRecordTotals());
+        });
+    }
+
+    bindRecordPlatformToggleEvents() {
+        document.querySelectorAll('.platform-group-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const userId = header.dataset.user;
+                const platform = header.dataset.platform;
+                const group = header.closest('.platform-group');
+                if (!group || !userId || !platform) return;
+                const collapsed = !group.classList.contains('collapsed');
+                group.classList.toggle('collapsed', collapsed);
+                this.setPlatformCollapsed(userId, platform, collapsed);
             });
         });
     }
@@ -1142,6 +1226,9 @@ class CoupleAssetTracker {
             this.data.settings.users.forEach(user => {
                 document.getElementById(`${user.id}RecordTotal`).textContent = '--';
             });
+            document.querySelectorAll('.platform-group-total').forEach(element => {
+                element.textContent = '--';
+            });
             document.getElementById('familyRecordTotal').textContent = '--';
             this.setSaveButtonAvailability(false, '缺少汇率');
             this.setFxStatus('error', `汇率缺失：${summary.missingCurrencies.join(', ')}`);
@@ -1151,6 +1238,14 @@ class CoupleAssetTracker {
         this.data.settings.users.forEach(user => {
             const userTotal = summary.totals[user.id] || 0;
             document.getElementById(`${user.id}RecordTotal`).textContent = `¥${userTotal.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
+        });
+        document.querySelectorAll('.platform-group-total').forEach(element => {
+            const userId = element.dataset.user;
+            const platform = element.dataset.platform;
+            const value = summary.platformTotals[userId] && summary.platformTotals[userId][platform]
+                ? summary.platformTotals[userId][platform]
+                : 0;
+            element.textContent = `¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
         });
         document.getElementById('familyRecordTotal').textContent = `¥${summary.totals.combined.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
         this.setFxStatus('ready', this.getFxSummaryText(summary.rateEntry));
@@ -1668,24 +1763,60 @@ class CoupleAssetTracker {
     renderSettings() {
         const container = document.getElementById('accountTypesList');
         container.innerHTML = '';
+        const ownerOrder = ['both', 'xiaoxiao', 'yunyun'];
+        const ownerGroups = ownerOrder.map(ownerId => ({
+            ownerId,
+            label: this.getOwnerLabel(ownerId),
+            accounts: this.data.accountTypes.filter(account => (account.ownerId || 'both') === ownerId)
+        }));
 
-        this.data.accountTypes.forEach(account => {
-            const item = document.createElement('div');
-            item.className = 'account-type-item';
-            item.innerHTML = `
-                <div class="account-type-info">
-                    <span class="account-type-icon">${account.icon}</span>
-                    <div class="account-type-main">
-                        <div class="account-type-title">${account.platform} · ${account.name}</div>
-                        <div class="account-type-meta">
-                            <span>${this.getOwnerLabel(account.ownerId)}</span>
-                            <span>${this.getCurrencyLabel(account.currency)}</span>
-                        </div>
-                    </div>
-                </div>
-                <button class="btn btn-danger" onclick="app.removeAccountType('${account.id}')" style="padding: 4px 8px; font-size: 0.8rem;">删除</button>
+        ownerGroups.forEach(ownerGroup => {
+            if (ownerGroup.accounts.length === 0) return;
+
+            const ownerNode = document.createElement('div');
+            ownerNode.className = 'settings-owner-group';
+            ownerNode.innerHTML = `
+                <div class="settings-owner-title">${ownerGroup.label}（${ownerGroup.accounts.length}项）</div>
+                <div class="settings-owner-platforms"></div>
             `;
-            container.appendChild(item);
+            const platformContainer = ownerNode.querySelector('.settings-owner-platforms');
+            const platformGroups = this.groupAccountsByPlatform(ownerGroup.accounts);
+
+            platformGroups.forEach(platformGroup => {
+                const platformNode = document.createElement('div');
+                platformNode.className = 'settings-platform-group';
+                platformNode.innerHTML = `
+                    <div class="settings-platform-header">
+                        <span class="settings-platform-icon">${platformGroup.icon}</span>
+                        <span class="settings-platform-name">${platformGroup.platform}</span>
+                        <span class="settings-platform-count">${platformGroup.accounts.length}个产品</span>
+                    </div>
+                    <div class="settings-platform-products"></div>
+                `;
+                const productContainer = platformNode.querySelector('.settings-platform-products');
+
+                platformGroup.accounts.forEach(account => {
+                    const item = document.createElement('div');
+                    item.className = 'account-type-item';
+                    item.innerHTML = `
+                        <div class="account-type-info">
+                            <span class="account-type-icon">${account.icon}</span>
+                            <div class="account-type-main">
+                                <div class="account-type-title">${account.name}</div>
+                                <div class="account-type-meta">
+                                    <span>${this.getCurrencyLabel(account.currency)}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <button class="btn btn-danger" onclick="app.removeAccountType('${account.id}')" style="padding: 4px 8px; font-size: 0.8rem;">删除</button>
+                    `;
+                    productContainer.appendChild(item);
+                });
+
+                platformContainer.appendChild(platformNode);
+            });
+
+            container.appendChild(ownerNode);
         });
 
         // 更新系统信息
