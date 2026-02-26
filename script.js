@@ -1021,7 +1021,12 @@ class CoupleAssetTracker {
                 this.updateAnalysisCharts();
             }, 200);
         } else if (tabName === 'record') {
-            this.updateRecordTotals();
+            const recordDateInput = document.getElementById('recordDate');
+            if (recordDateInput && !recordDateInput.value) {
+                this.initNewRecord();
+            } else {
+                this.updateRecordTotals();
+            }
         }
     }
 
