@@ -910,7 +910,18 @@ class CoupleAssetTracker {
     }
 
     async applyRemoteData(remoteData, revision, syncedAt) {
+        const localAutoSync = Boolean(
+            this.data &&
+            this.data.settings &&
+            this.data.settings.sync &&
+            this.data.settings.sync.autoSync
+        );
         this.data = this.mergeDataWithDefaults(remoteData);
+        this.data.settings.sync = {
+            ...this.getDefaultSyncSettings(),
+            ...(this.data.settings.sync || {}),
+            autoSync: localAutoSync
+        };
         this.syncMeta.localRevision = revision;
         this.syncMeta.lastSyncedRevision = revision;
         this.syncMeta.lastSyncedAt = syncedAt || new Date().toISOString();
@@ -924,7 +935,18 @@ class CoupleAssetTracker {
     }
 
     async applyMergedDataAfterSync(mergedData, revision, syncedAt) {
+        const localAutoSync = Boolean(
+            this.data &&
+            this.data.settings &&
+            this.data.settings.sync &&
+            this.data.settings.sync.autoSync
+        );
         this.data = this.mergeDataWithDefaults(mergedData);
+        this.data.settings.sync = {
+            ...this.getDefaultSyncSettings(),
+            ...(this.data.settings.sync || {}),
+            autoSync: localAutoSync
+        };
         this.syncMeta.localRevision = revision;
         this.syncMeta.lastSyncedRevision = revision;
         this.syncMeta.lastSyncedAt = syncedAt || new Date().toISOString();
