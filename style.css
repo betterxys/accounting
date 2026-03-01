@@ -691,6 +691,35 @@ body {
     padding: 2px 8px;
 }
 
+.account-type-meta .allocation-tag-badge {
+    color: #fff;
+    font-weight: 600;
+}
+
+.account-type-meta .allocation-tag-badge.tag-flexible {
+    background: #2e7d32;
+}
+
+.account-type-meta .allocation-tag-badge.tag-stable {
+    background: #1565c0;
+}
+
+.account-type-meta .allocation-tag-badge.tag-aggressive {
+    background: #c62828;
+}
+
+.account-type-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.allocation-tag-select {
+    min-width: 118px;
+    padding: 4px 8px;
+    font-size: 0.8rem;
+}
+
 .account-mgmt-actions {
     display: flex;
     gap: 12px;
@@ -1071,6 +1100,20 @@ body {
 
     .settings-platform-products {
         padding: 6px;
+    }
+
+    .account-type-item {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .account-type-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .allocation-tag-select {
+        flex: 1;
     }
 
     .account-mgmt-actions {
