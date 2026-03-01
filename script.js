@@ -450,12 +450,12 @@ class CoupleAssetTracker {
 
     getDefaultAccountTypes() {
         return [
-            { id: 'cmbc', platform: '招商银行', name: '活期存款', currency: 'CNY', ownerId: 'both', icon: '🏦', color: '#d32f2f', category: 'bank' },
-            { id: 'icbc', platform: '中国银行', name: '活期存款', currency: 'CNY', ownerId: 'both', icon: '🏛️', color: '#1976d2', category: 'bank' },
-            { id: 'ccb', platform: '建设银行', name: '活期存款', currency: 'CNY', ownerId: 'both', icon: '🏦', color: '#0d47a1', category: 'bank' },
-            { id: 'wechat', platform: '微信', name: '零钱', currency: 'CNY', ownerId: 'both', icon: '💬', color: '#4caf50', category: 'payment' },
-            { id: 'alipay', platform: '支付宝', name: '余额', currency: 'CNY', ownerId: 'both', icon: '💰', color: '#2196f3', category: 'payment' },
-            { id: 'cash', platform: '现金', name: '现金', currency: 'CNY', ownerId: 'both', icon: '💵', color: '#ff9800', category: 'cash' }
+            { id: 'cmbc', platform: '招商银行', name: '活期存款', currency: 'CNY', ownerId: 'both', icon: '🏦', color: '#d32f2f', category: 'bank', allocationTag: 'flexible' },
+            { id: 'icbc', platform: '中国银行', name: '活期存款', currency: 'CNY', ownerId: 'both', icon: '🏛️', color: '#1976d2', category: 'bank', allocationTag: 'flexible' },
+            { id: 'ccb', platform: '建设银行', name: '活期存款', currency: 'CNY', ownerId: 'both', icon: '🏦', color: '#0d47a1', category: 'bank', allocationTag: 'flexible' },
+            { id: 'wechat', platform: '微信', name: '零钱', currency: 'CNY', ownerId: 'both', icon: '💬', color: '#4caf50', category: 'payment', allocationTag: 'flexible' },
+            { id: 'alipay', platform: '支付宝', name: '余额', currency: 'CNY', ownerId: 'both', icon: '💰', color: '#2196f3', category: 'payment', allocationTag: 'flexible' },
+            { id: 'cash', platform: '现金', name: '现金', currency: 'CNY', ownerId: 'both', icon: '💵', color: '#ff9800', category: 'cash', allocationTag: 'flexible' }
         ];
     }
 
@@ -592,6 +592,40 @@ class CoupleAssetTracker {
         return '双方共用';
     }
 
+    getAllocationTagOptions() {
+        return [
+            { value: 'flexible', label: '灵活取用', color: '#2e7d32' },
+            { value: 'stable', label: '稳健投资', color: '#1565c0' },
+            { value: 'aggressive', label: '激进投资', color: '#c62828' }
+        ];
+    }
+
+    normalizeAllocationTag(value, category = 'other') {
+        const raw = String(value || '').trim().toLowerCase();
+        const options = this.getAllocationTagOptions();
+        if (options.some(option => option.value === raw)) return raw;
+
+        if (raw.includes('灵活') || raw.includes('活期') || raw.includes('现金')) return 'flexible';
+        if (raw.includes('稳健') || raw.includes('保守') || raw.includes('低风险')) return 'stable';
+        if (raw.includes('激进') || raw.includes('基金') || raw.includes('股票') || raw.includes('高风险')) return 'aggressive';
+
+        if (category === 'cash' || category === 'payment') return 'flexible';
+        if (category === 'investment') return 'stable';
+        return 'flexible';
+    }
+
+    getAllocationTagLabel(tag) {
+        const normalized = this.normalizeAllocationTag(tag);
+        const match = this.getAllocationTagOptions().find(option => option.value === normalized);
+        return match ? match.label : '灵活取用';
+    }
+
+    getAllocationTagColor(tag) {
+        const normalized = this.normalizeAllocationTag(tag);
+        const match = this.getAllocationTagOptions().find(option => option.value === normalized);
+        return match ? match.color : '#2e7d32';
+    }
+
     guessIconByPlatform(platform) {
         const text = String(platform || '');
         if (text.includes('支付宝')) return '💰';
@@ -625,6 +659,7 @@ class CoupleAssetTracker {
         const currency = isStock && parsedStock
             ? parsedStock.currency
             : baseCurrency;
+        const category = isStock ? 'stock' : rawCategory;
         const now = new Date().toISOString();
 
         return {
@@ -635,7 +670,8 @@ class CoupleAssetTracker {
             currency,
             icon: source.icon || (isStock ? '📈' : this.guessIconByPlatform(platform)),
             color: source.color || this.guessColorByPlatform(platform),
-            category: isStock ? 'stock' : rawCategory,
+            category,
+            allocationTag: this.normalizeAllocationTag(source.allocationTag, category),
             stockCode: isStock
                 ? (parsedStock ? parsedStock.normalizedCode : String(source.stockCode || '').trim().toUpperCase())
                 : '',
@@ -2141,9 +2177,11 @@ class CoupleAssetTracker {
         const latestRecord = this.data.monthlyRecords[0];
         if (!latestRecord) return;
 
-        const labels = [];
-        const data = [];
-        const colors = [];
+        const tagOptions = this.getAllocationTagOptions();
+        const totalsByTag = tagOptions.reduce((acc, option) => {
+            acc[option.value] = 0;
+            return acc;
+        }, {});
         const latestRates = latestRecord.fxSnapshot && latestRecord.fxSnapshot.rates
             ? latestRecord.fxSnapshot.rates
             : { [FX_BASE_CURRENCY]: 1 };
@@ -2185,18 +2223,26 @@ class CoupleAssetTracker {
                     return sum + rawAmount * rate;
                 }, 0);
             }
-
-            labels.push(`${account.platform} · ${account.name}`);
-            data.push(amountInCny);
-            colors.push(account.color || '#90a4ae');
+            
+            const tag = this.normalizeAllocationTag(account.allocationTag, account.category);
+            totalsByTag[tag] += amountInCny;
         });
+
+        const values = tagOptions.map(option => totalsByTag[option.value] || 0);
+        const totalAmount = values.reduce((sum, value) => sum + value, 0);
+        const labels = tagOptions.map(option => {
+            const amount = totalsByTag[option.value] || 0;
+            const percent = totalAmount > 0 ? (amount / totalAmount) * 100 : 0;
+            return `${option.label}（${percent.toFixed(1)}%）`;
+        });
+        const colors = tagOptions.map(option => option.color);
 
         this.charts.distribution = new Chart(ctx, {
             type: 'doughnut',
             data: {
                 labels,
                 datasets: [{
-                    data,
+                    data: values,
                     backgroundColor: colors,
                     borderWidth: 2
                 }]
@@ -2207,6 +2253,15 @@ class CoupleAssetTracker {
                 plugins: {
                     legend: {
                         position: 'bottom',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => {
+                                const value = Number(context.parsed) || 0;
+                                const percent = totalAmount > 0 ? (value / totalAmount) * 100 : 0;
+                                return `${context.label}: ¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}（${percent.toFixed(1)}%）`;
+                            }
+                        }
                     }
                 }
             }
@@ -2366,11 +2421,13 @@ class CoupleAssetTracker {
                 addProductBtn.setAttribute('data-icon', sampleAccount.icon || platformGroup.icon || this.guessIconByPlatform(platformGroup.platform));
                 addProductBtn.setAttribute('data-color', sampleAccount.color || this.guessColorByPlatform(platformGroup.platform));
                 addProductBtn.setAttribute('data-category', sampleAccount.category || 'other');
+                addProductBtn.setAttribute('data-allocation-tag', this.normalizeAllocationTag(sampleAccount.allocationTag, sampleAccount.category));
                 if (platformActions) {
                     platformActions.appendChild(addProductBtn);
                 }
 
                 platformGroup.accounts.forEach(account => {
+                    const allocationTag = this.normalizeAllocationTag(account.allocationTag, account.category);
                     const stockCodeTag = this.isStockAccount(account) && this.getStockDisplayCode(account)
                         ? `<span>代码 ${this.getStockDisplayCode(account)}</span>`
                         : '';
@@ -2384,10 +2441,18 @@ class CoupleAssetTracker {
                                 <div class="account-type-meta">
                                     <span>${this.getCurrencyLabel(account.currency)}</span>
                                     ${stockCodeTag}
+                                    <span class="allocation-tag-badge tag-${allocationTag}">${this.getAllocationTagLabel(allocationTag)}</span>
                                 </div>
                             </div>
                         </div>
-                        <button class="btn btn-danger" onclick="app.removeAccountType('${account.id}')" style="padding: 4px 8px; font-size: 0.8rem;">删除</button>
+                        <div class="account-type-actions">
+                            <select class="form-select allocation-tag-select" data-account-id="${account.id}">
+                                ${this.getAllocationTagOptions().map(option => `
+                                    <option value="${option.value}" ${option.value === allocationTag ? 'selected' : ''}>${option.label}</option>
+                                `).join('')}
+                            </select>
+                            <button class="btn btn-danger" onclick="app.removeAccountType('${account.id}')" style="padding: 4px 8px; font-size: 0.8rem;">删除</button>
+                        </div>
                     `;
                     productContainer.appendChild(item);
                 });
@@ -2399,6 +2464,7 @@ class CoupleAssetTracker {
         });
 
         this.bindSettingsPlatformQuickAddEvents();
+        this.bindSettingsAllocationTagEvents();
 
         // 更新系统信息
         document.getElementById('dataCount').textContent = this.data.monthlyRecords.length;
@@ -2426,8 +2492,30 @@ class CoupleAssetTracker {
                     icon: btn.getAttribute('data-icon') || '',
                     color: btn.getAttribute('data-color') || '',
                     category: btn.getAttribute('data-category') || 'other',
+                    allocationTag: btn.getAttribute('data-allocation-tag') || 'flexible',
                     lockPlatform: true
                 });
+            });
+        });
+    }
+
+    bindSettingsAllocationTagEvents() {
+        document.querySelectorAll('.allocation-tag-select').forEach(select => {
+            select.addEventListener('change', async (event) => {
+                const accountId = event.target.getAttribute('data-account-id');
+                if (!accountId) return;
+                const targetAccount = this.data.accountTypes.find(account => account.id === accountId);
+                if (!targetAccount) return;
+
+                const nextTag = this.normalizeAllocationTag(event.target.value, targetAccount.category);
+                const currentTag = this.normalizeAllocationTag(targetAccount.allocationTag, targetAccount.category);
+                if (currentTag === nextTag) return;
+
+                targetAccount.allocationTag = nextTag;
+                targetAccount.updatedAt = new Date().toISOString();
+                await this.saveData();
+                this.renderSettings();
+                this.updateAnalysisCharts();
             });
         });
     }
@@ -2488,6 +2576,7 @@ class CoupleAssetTracker {
         const defaultStockCode = String(preset.stockCode || '').trim().toUpperCase();
         const parsedDefaultStock = this.parseStockCode(defaultStockCode);
         const normalizedDefaultCurrency = parsedDefaultStock ? parsedDefaultStock.currency : defaultCurrency;
+        const defaultAllocationTag = this.normalizeAllocationTag(preset.allocationTag, defaultCategory);
         const defaultIcon = String(
             preset.icon ||
             this.guessIconByPlatform(defaultPlatform || '银行') ||
@@ -2634,6 +2723,15 @@ class CoupleAssetTracker {
                         <option value="other">其他</option>
                     </select>
                 </div>
+
+                <div>
+                    <label style="font-weight: 500; margin-bottom: 8px; display: block;">资产标签（用于汇总占比）：</label>
+                    <select id="newAccountAllocationTag" class="form-select" style="width: 100%;">
+                        ${this.getAllocationTagOptions().map(option => `
+                            <option value="${option.value}">${option.label}</option>
+                        `).join('')}
+                    </select>
+                </div>
             </div>
         `;
 
@@ -2642,6 +2740,7 @@ class CoupleAssetTracker {
         const currencySelect = document.getElementById('newAccountCurrency');
         const categorySelect = document.getElementById('newAccountCategory');
         const stockCodeInput = document.getElementById('newAccountStockCode');
+        const allocationTagSelect = document.getElementById('newAccountAllocationTag');
         const selectedIcon = document.getElementById('selectedIcon');
         const customColorInput = document.getElementById('customColor');
         const selectedColor = document.getElementById('selectedColor');
@@ -2657,6 +2756,7 @@ class CoupleAssetTracker {
         if (currencySelect) currencySelect.value = normalizedDefaultCurrency;
         if (categorySelect) categorySelect.value = defaultCategory;
         if (stockCodeInput) stockCodeInput.value = parsedDefaultStock ? parsedDefaultStock.normalizedCode : defaultStockCode;
+        if (allocationTagSelect) allocationTagSelect.value = defaultAllocationTag;
         if (selectedIcon) selectedIcon.textContent = defaultIcon;
         if (customColorInput) customColorInput.value = defaultColor;
         if (selectedColor) selectedColor.style.background = defaultColor;
@@ -2866,6 +2966,7 @@ class CoupleAssetTracker {
             icon: this.guessIconByPlatform(platform),
             color: this.guessColorByPlatform(platform),
             category: 'other',
+            allocationTag: 'flexible',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
         });
@@ -3040,6 +3141,10 @@ class CoupleAssetTracker {
         const selectedColor = document.getElementById('customColor').value;
         const category = document.getElementById('newAccountCategory').value;
         const isStockMode = category === 'stock';
+        const allocationTag = this.normalizeAllocationTag(
+            document.getElementById('newAccountAllocationTag').value,
+            category
+        );
 
         // 优先使用自定义图标，否则使用选中的预设图标
         const icon = customIcon || selectedIcon;
@@ -3132,6 +3237,7 @@ class CoupleAssetTracker {
                 stockCode: isStockMode ? product.stockCode : '',
                 stockSecid: isStockMode ? product.stockSecid : '',
                 stockMarket: isStockMode ? product.stockMarket : '',
+                allocationTag,
                 createdAt: now,
                 updatedAt: now
             });
