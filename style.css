@@ -417,6 +417,16 @@ body {
     line-height: 1.3;
 }
 
+.account-stock-code-tag {
+    font-size: 0.72rem;
+    color: #4b5563;
+    background: #eef3ff;
+    border: 1px solid #d6e2ff;
+    border-radius: 999px;
+    padding: 1px 7px;
+    width: fit-content;
+}
+
 .account-currency {
     font-size: 0.75rem;
     color: #475467;
@@ -430,6 +440,26 @@ body {
 .account-input {
     width: 120px;
     text-align: right;
+}
+
+.stock-quote-info {
+    grid-column: 2 / -1;
+    margin-top: -3px;
+    font-size: 0.75rem;
+    color: #667085;
+    line-height: 1.35;
+}
+
+.stock-quote-info.loading {
+    color: #8a6100;
+}
+
+.stock-quote-info.ready {
+    color: #1f6d36;
+}
+
+.stock-quote-info.error {
+    color: #b42318;
 }
 
 .empty-user-accounts {
@@ -1014,6 +1044,11 @@ body {
         grid-column: 1 / -1;
         text-align: left;
         font-size: 1rem;
+    }
+
+    .stock-quote-info {
+        grid-column: 1 / -1;
+        margin-top: -2px;
     }
 
     .user-total {

@@ -6,6 +6,7 @@ const APP_SYNC_META_KEY = 'sync_meta';
 const SUPABASE_SYNC_TABLE = 'asset_documents';
 const FX_API_BASE_URL = 'https://api.frankfurter.app';
 const FX_BASE_CURRENCY = 'CNY';
+const STOCK_API_BASE_URL = 'https://push2his.eastmoney.com/api/qt/stock/kline/get';
 const BOUND_SUPABASE_CONFIG = Object.freeze({
     // 绑定配置模式：在部署前填入你的 Supabase 项目配置
     supabaseUrl: 'https://agkbbktmeyvjbbvswmja.supabase.co',
@@ -421,6 +422,8 @@ class CoupleAssetTracker {
         };
         this.fxRatesByDate = {};
         this.fxFetchPromises = new Map();
+        this.stockQuotesByDate = {};
+        this.stockFetchPromises = new Map();
         this.saveButtonBaseText = '💾 保存记录';
         this.platformCollapseState = {};
         this.charts = {};
@@ -436,7 +439,7 @@ class CoupleAssetTracker {
         this.initEventListeners();
         this.renderAccountInputs();
         this.updateCurrentMonth();
-        this.setFxStatus('idle', '汇率：请选择记账日期后自动获取（日汇率）');
+        this.setFxStatus('idle', '汇率/股票：请选择记账日期后自动获取（日汇率与前一交易日收盘价）');
         this.setSaveButtonAvailability(false, '请选择记账日期');
         this.initCharts();
         this.updateOverview();
@@ -474,6 +477,115 @@ class CoupleAssetTracker {
         return normalized;
     }
 
+    buildStockCodeMeta(market, code) {
+        if (market === 'hk') {
+            const normalizedCode = String(code || '').padStart(5, '0');
+            return {
+                market,
+                marketLabel: '港股',
+                code: normalizedCode,
+                normalizedCode: `HK${normalizedCode}`,
+                secid: `116.${normalizedCode}`,
+                currency: 'HKD'
+            };
+        }
+        if (market === 'sh') {
+            const normalizedCode = String(code || '').padStart(6, '0');
+            return {
+                market,
+                marketLabel: '沪市',
+                code: normalizedCode,
+                normalizedCode: `SH${normalizedCode}`,
+                secid: `1.${normalizedCode}`,
+                currency: 'CNY'
+            };
+        }
+        if (market === 'sz') {
+            const normalizedCode = String(code || '').padStart(6, '0');
+            return {
+                market,
+                marketLabel: '深市',
+                code: normalizedCode,
+                normalizedCode: `SZ${normalizedCode}`,
+                secid: `0.${normalizedCode}`,
+                currency: 'CNY'
+            };
+        }
+        return null;
+    }
+
+    parseStockCode(rawCode) {
+        const value = String(rawCode || '').trim().toUpperCase().replace(/\s+/g, '');
+        if (!value) return null;
+
+        const secidMatch = value.match(/^(\d{1,3})\.(\d{4,6})$/);
+        if (secidMatch) {
+            const marketId = secidMatch[1];
+            const code = secidMatch[2];
+            if (marketId === '116') return this.buildStockCodeMeta('hk', code);
+            if (marketId === '1') return this.buildStockCodeMeta('sh', code);
+            if (marketId === '0') return this.buildStockCodeMeta('sz', code);
+            return null;
+        }
+
+        const normalized = value.replace(/-/g, '.');
+        const suffixMatch = normalized.match(/^(\d{4,6})\.([A-Z]{2})$/);
+        if (suffixMatch) {
+            const digits = suffixMatch[1];
+            const suffix = suffixMatch[2];
+            if (suffix === 'HK') return this.buildStockCodeMeta('hk', digits);
+            if (suffix === 'SH') return this.buildStockCodeMeta('sh', digits);
+            if (suffix === 'SZ') return this.buildStockCodeMeta('sz', digits);
+            return null;
+        }
+
+        const dotMatch = normalized.match(/^([A-Z]{2})\.(\d{4,6})$/);
+        if (dotMatch) {
+            const prefix = dotMatch[1];
+            const digits = dotMatch[2];
+            if (prefix === 'HK') return this.buildStockCodeMeta('hk', digits);
+            if (prefix === 'SH') return this.buildStockCodeMeta('sh', digits);
+            if (prefix === 'SZ') return this.buildStockCodeMeta('sz', digits);
+            return null;
+        }
+
+        const prefixedMatch = normalized.match(/^(HK|SH|SZ)(\d{4,6})$/);
+        if (prefixedMatch) {
+            const prefix = prefixedMatch[1];
+            const digits = prefixedMatch[2];
+            if (prefix === 'HK') return this.buildStockCodeMeta('hk', digits);
+            if (prefix === 'SH') return this.buildStockCodeMeta('sh', digits);
+            if (prefix === 'SZ') return this.buildStockCodeMeta('sz', digits);
+        }
+
+        if (/^\d{6}$/.test(normalized)) {
+            if (normalized.startsWith('6') || normalized.startsWith('9')) {
+                return this.buildStockCodeMeta('sh', normalized);
+            }
+            if (normalized.startsWith('0') || normalized.startsWith('3')) {
+                return this.buildStockCodeMeta('sz', normalized);
+            }
+        }
+
+        if (/^\d{4,5}$/.test(normalized)) {
+            return this.buildStockCodeMeta('hk', normalized);
+        }
+
+        return null;
+    }
+
+    isStockAccount(account) {
+        if (!account || typeof account !== 'object') return false;
+        return account.category === 'stock' || Boolean(String(account.stockCode || '').trim());
+    }
+
+    getStockDisplayCode(account) {
+        if (!account) return '';
+        const parsed = this.parseStockCode(account.stockCode || account.stockSecid || '');
+        if (parsed) return parsed.normalizedCode;
+        return String(account.stockCode || '').trim().toUpperCase();
+    }
+
     getOwnerLabel(ownerId) {
         if (ownerId === 'xiaoxiao') return '肖肖专用';
         if (ownerId === 'yunyun') return '运运专用';
@@ -506,7 +618,13 @@ class CoupleAssetTracker {
         const platform = String(source.platform || source.name || '未分类平台').trim() || '未分类平台';
         const name = String(source.name || '未命名资产').trim() || '未命名资产';
         const ownerId = source.ownerId === 'xiaoxiao' || source.ownerId === 'yunyun' ? source.ownerId : 'both';
-        const currency = this.normalizeCurrency(source.currency);
+        const baseCurrency = this.normalizeCurrency(source.currency);
+        const rawCategory = source.category || 'other';
+        const parsedStock = this.parseStockCode(source.stockCode || source.stockSecid || '');
+        const isStock = rawCategory === 'stock' || Boolean(parsedStock) || Boolean(String(source.stockCode || '').trim());
+        const currency = isStock && parsedStock
+            ? parsedStock.currency
+            : baseCurrency;
         const now = new Date().toISOString();
 
         return {
@@ -515,9 +633,18 @@ class CoupleAssetTracker {
             name,
             ownerId,
             currency,
-            icon: source.icon || this.guessIconByPlatform(platform),
+            icon: source.icon || (isStock ? '📈' : this.guessIconByPlatform(platform)),
             color: source.color || this.guessColorByPlatform(platform),
-            category: source.category || 'other',
+            category: isStock ? 'stock' : rawCategory,
+            stockCode: isStock
+                ? (parsedStock ? parsedStock.normalizedCode : String(source.stockCode || '').trim().toUpperCase())
+                : '',
+            stockSecid: isStock
+                ? (parsedStock ? parsedStock.secid : String(source.stockSecid || '').trim())
+                : '',
+            stockMarket: isStock
+                ? (parsedStock ? parsedStock.market : String(source.stockMarket || '').trim().toLowerCase())
+                : '',
             createdAt: source.createdAt || now,
             updatedAt: source.updatedAt || source.createdAt || now
         };
@@ -617,6 +744,204 @@ class CoupleAssetTracker {
         return `汇率：${quoteParts.join('，')}`;
     }
 
+    getRecordMarketSummaryText(rateEntry, stockEntry) {
+        const fxText = this.getFxSummaryText(rateEntry);
+        const quotes = Object.values((stockEntry && stockEntry.quotes) ? stockEntry.quotes : {})
+            .filter(item => item && Number.isFinite(Number(item.previousClose)) && Number(item.previousClose) > 0)
+            .sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')));
+        if (quotes.length === 0) return fxText;
+
+        const stockText = quotes
+            .slice(0, 3)
+            .map(quote => {
+                const name = quote.name || quote.code || '股票';
+                const code = quote.code || '--';
+                const price = this.formatStockPrice(quote.previousClose, quote.currency);
+                const dateTip = quote.quoteDate ? `（${quote.quoteDate}）` : '';
+                return `${name}(${code})昨收${price} ${quote.currency || 'CNY'}${dateTip}`;
+            })
+            .join('，');
+        const moreTip = quotes.length > 3 ? ` 等${quotes.length}只` : '';
+        return `${fxText}｜股票：${stockText}${moreTip}`;
+    }
+
+    formatStockPrice(price, currency = 'CNY') {
+        const value = Number(price);
+        if (!Number.isFinite(value)) return '--';
+        const decimals = this.normalizeCurrency(currency) === 'HKD' ? 3 : 2;
+        return value.toFixed(decimals);
+    }
+
+    getPreviousCalendarDate(dateString) {
+        if (!dateString) return '';
+        const parts = String(dateString).split('-').map(value => Number(value));
+        if (parts.length !== 3 || parts.some(value => !Number.isInteger(value))) return '';
+        const utcDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+        if (Number.isNaN(utcDate.getTime())) return '';
+        utcDate.setUTCDate(utcDate.getUTCDate() - 1);
+        const year = utcDate.getUTCFullYear();
+        const month = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(utcDate.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    toCompactDate(dateString) {
+        return String(dateString || '').replace(/-/g, '');
+    }
+
+    async fetchStockPreviousClose(recordDate, account) {
+        const parsedStock = this.parseStockCode(account.stockCode || account.stockSecid || '');
+        if (!parsedStock) {
+            throw new Error(`股票代码无效：${account.stockCode || '--'}`);
+        }
+
+        const previousDate = this.getPreviousCalendarDate(recordDate);
+        if (!previousDate) {
+            throw new Error('记账日期格式无效');
+        }
+        const endDate = this.toCompactDate(previousDate);
+        const params = new URLSearchParams({
+            secid: parsedStock.secid,
+            klt: '101',
+            fqt: '1',
+            lmt: '1',
+            end: endDate,
+            iscca: '1',
+            fields1: 'f1,f2,f3,f4,f5,f6',
+            fields2: 'f51,f52,f53,f54,f55,f56,f57,f58'
+        });
+        const url = `${STOCK_API_BASE_URL}?${params.toString()}`;
+
+        let lastError = null;
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        Accept: 'application/json, text/plain, */*'
+                    }
+                });
+                if (!response.ok) {
+                    throw new Error(`行情接口异常（${response.status}）`);
+                }
+
+                const payload = await response.json();
+                const data = payload && payload.data ? payload.data : null;
+                const klines = data && Array.isArray(data.klines) ? data.klines : [];
+                if (klines.length === 0) {
+                    throw new Error('未返回可用K线数据');
+                }
+
+                const latestKline = String(klines[klines.length - 1] || '');
+                const [quoteDate, openPrice, closePrice] = latestKline.split(',');
+                const previousClose = Number(closePrice);
+                if (!Number.isFinite(previousClose) || previousClose <= 0) {
+                    throw new Error(`昨收价无效：${closePrice || '--'}`);
+                }
+
+                return {
+                    accountId: account.id,
+                    code: parsedStock.normalizedCode,
+                    secid: parsedStock.secid,
+                    market: parsedStock.market,
+                    currency: parsedStock.currency,
+                    name: String(data && data.name ? data.name : account.name || parsedStock.normalizedCode).trim(),
+                    previousClose,
+                    quoteDate: quoteDate || previousDate,
+                    openPrice: Number(openPrice),
+                    provider: 'eastmoney',
+                    fetchedAt: new Date().toISOString()
+                };
+            } catch (error) {
+                lastError = error;
+                if (attempt < 3) {
+                    await new Promise(resolve => setTimeout(resolve, 260 * attempt));
+                }
+            }
+        }
+
+        const reason = lastError && lastError.message ? lastError.message : '未知错误';
+        throw new Error(`获取 ${account.name || parsedStock.normalizedCode} 昨收失败：${reason}`);
+    }
+
+    async ensureStockQuotesForDate(recordDate) {
+        if (!recordDate) {
+            return {
+                requestedDate: '',
+                provider: 'eastmoney',
+                quotes: {},
+                errors: {}
+            };
+        }
+
+        if (!this.stockQuotesByDate[recordDate]) {
+            this.stockQuotesByDate[recordDate] = {
+                requestedDate: recordDate,
+                provider: 'eastmoney',
+                quotes: {},
+                errors: {}
+            };
+        }
+
+        const quoteEntry = this.stockQuotesByDate[recordDate];
+        const stockAccounts = this.data.accountTypes.filter(account => this.isStockAccount(account));
+        const activeAccountIds = new Set(stockAccounts.map(account => account.id));
+        Object.keys(quoteEntry.quotes || {}).forEach(accountId => {
+            if (!activeAccountIds.has(accountId)) delete quoteEntry.quotes[accountId];
+        });
+        Object.keys(quoteEntry.errors || {}).forEach(accountId => {
+            if (!activeAccountIds.has(accountId)) delete quoteEntry.errors[accountId];
+        });
+
+        if (stockAccounts.length === 0) {
+            return quoteEntry;
+        }
+
+        const pendingAccounts = stockAccounts.filter(account => {
+            const cached = quoteEntry.quotes[account.id];
+            const expectedCode = this.getStockDisplayCode(account);
+            if (!cached) return true;
+            return expectedCode && String(cached.code || '') !== expectedCode;
+        });
+
+        if (pendingAccounts.length === 0) {
+            return quoteEntry;
+        }
+
+        const promiseKey = `${recordDate}:${pendingAccounts
+            .map(account => `${account.id}:${this.getStockDisplayCode(account)}`)
+            .sort()
+            .join(',')}`;
+        if (this.stockFetchPromises.has(promiseKey)) {
+            return this.stockFetchPromises.get(promiseKey);
+        }
+
+        const task = Promise.allSettled(
+            pendingAccounts.map(account => this.fetchStockPreviousClose(recordDate, account))
+        )
+            .then(results => {
+                results.forEach((result, index) => {
+                    const account = pendingAccounts[index];
+                    if (!account) return;
+                    if (result.status === 'fulfilled') {
+                        quoteEntry.quotes[account.id] = result.value;
+                        delete quoteEntry.errors[account.id];
+                    } else {
+                        delete quoteEntry.quotes[account.id];
+                        quoteEntry.errors[account.id] = result.reason && result.reason.message
+                            ? result.reason.message
+                            : '股票行情获取失败';
+                    }
+                });
+                return quoteEntry;
+            })
+            .finally(() => {
+                this.stockFetchPromises.delete(promiseKey);
+            });
+
+        this.stockFetchPromises.set(promiseKey, task);
+        return task;
+    }
+
     async fetchDailyRate(date, fromCurrency) {
         const url = `${FX_API_BASE_URL}/${encodeURIComponent(date)}?from=${encodeURIComponent(fromCurrency)}&to=${FX_BASE_CURRENCY}`;
         const response = await fetch(url);
@@ -697,21 +1022,63 @@ class CoupleAssetTracker {
             rates: { [FX_BASE_CURRENCY]: 1 },
             effectiveDates: { [FX_BASE_CURRENCY]: recordDate }
         };
+        const stockEntry = this.stockQuotesByDate[recordDate] || {
+            requestedDate: recordDate,
+            provider: 'eastmoney',
+            quotes: {},
+            errors: {}
+        };
         const balances = {};
         const totals = {};
         const platformTotals = {};
+        const stockValuations = {};
         const missingCurrencies = new Set();
+        const missingStockQuotes = new Set();
         let familyTotal = 0;
 
         users.forEach(user => {
             balances[user.id] = {};
             let userTotal = 0;
             platformTotals[user.id] = {};
+            stockValuations[user.id] = {};
 
             this.getUserAccounts(user.id).forEach(account => {
                 const input = document.querySelector(`[data-user="${user.id}"][data-account="${account.id}"]`);
                 const amount = input ? (parseFloat(input.value) || 0) : 0;
                 balances[user.id][account.id] = amount;
+
+                if (this.isStockAccount(account)) {
+                    const quote = stockEntry.quotes ? stockEntry.quotes[account.id] : null;
+                    const previousClose = Number(quote && quote.previousClose);
+                    if (!Number.isFinite(previousClose) || previousClose <= 0) {
+                        missingStockQuotes.add(account.id);
+                        return;
+                    }
+
+                    const stockCurrency = this.normalizeCurrency((quote && quote.currency) || account.currency || FX_BASE_CURRENCY);
+                    const rate = stockCurrency === FX_BASE_CURRENCY ? 1 : rateEntry.rates[stockCurrency];
+                    if (!Number.isFinite(rate) || rate <= 0) {
+                        missingCurrencies.add(stockCurrency);
+                        return;
+                    }
+
+                    const valueOriginal = amount * previousClose;
+                    const converted = valueOriginal * rate;
+                    userTotal += converted;
+                    platformTotals[user.id][account.platform] = (platformTotals[user.id][account.platform] || 0) + converted;
+                    stockValuations[user.id][account.id] = {
+                        shares: amount,
+                        previousClose,
+                        quoteDate: quote.quoteDate || '',
+                        code: quote.code || this.getStockDisplayCode(account),
+                        name: quote.name || account.name || '',
+                        currency: stockCurrency,
+                        rateToCny: rate,
+                        valueOriginal,
+                        valueCny: converted
+                    };
+                    return;
+                }
 
                 const currency = this.normalizeCurrency(account.currency);
                 const rate = currency === FX_BASE_CURRENCY ? 1 : rateEntry.rates[currency];
@@ -736,7 +1103,11 @@ class CoupleAssetTracker {
             totals,
             platformTotals,
             rateEntry,
-            missingCurrencies: Array.from(missingCurrencies)
+            stockEntry,
+            stockValuations,
+            stockErrors: { ...(stockEntry.errors || {}) },
+            missingCurrencies: Array.from(missingCurrencies),
+            missingStockQuotes: Array.from(missingStockQuotes)
         };
     }
 
@@ -1098,20 +1469,38 @@ class CoupleAssetTracker {
 
                 const productsContainer = groupNode.querySelector('.platform-group-products');
                 group.accounts.forEach(account => {
+                    const isStock = this.isStockAccount(account);
+                    const stockCode = this.getStockDisplayCode(account);
+                    const inputStep = isStock ? '0.0001' : '0.01';
+                    const inputPlaceholder = isStock ? '输入股数' : '0.00';
+                    const currencyText = isStock
+                        ? `股数 · ${this.getCurrencyLabel(account.currency)}`
+                        : this.getCurrencyLabel(account.currency);
+                    const stockCodeTag = isStock && stockCode
+                        ? `<span class="account-stock-code-tag">${stockCode}</span>`
+                        : '';
+                    const stockQuoteInfo = isStock
+                        ? `<div class="stock-quote-info loading" data-user="${user.id}" data-account="${account.id}">昨收价加载中...</div>`
+                        : '';
                     const inputGroup = document.createElement('div');
                     inputGroup.className = 'account-input-group';
                     inputGroup.innerHTML = `
                         <span class="account-icon">${account.icon}</span>
-                        <span class="account-label">${account.name}</span>
-                        <span class="account-currency">${this.getCurrencyLabel(account.currency)}</span>
+                        <span class="account-label-wrap">
+                            <span class="account-label">${account.name}</span>
+                            ${stockCodeTag}
+                        </span>
+                        <span class="account-currency">${currencyText}</span>
                         <input 
                             type="number" 
-                            step="0.01" 
-                            placeholder="0.00"
+                            step="${inputStep}" 
+                            placeholder="${inputPlaceholder}"
                             class="form-input account-input"
                             data-user="${user.id}"
                             data-account="${account.id}"
+                            data-input-kind="${isStock ? 'shares' : 'amount'}"
                         >
+                        ${stockQuoteInfo}
                     `;
                     productsContainer.appendChild(inputGroup);
                 });
@@ -1234,11 +1623,69 @@ class CoupleAssetTracker {
         recordDate.parentNode.insertBefore(statusDiv, recordDate.nextSibling);
     }
 
+    updateStockQuoteDisplays(summary) {
+        const stockInfoElements = document.querySelectorAll('.stock-quote-info');
+        if (!summary) {
+            stockInfoElements.forEach(element => {
+                element.className = 'stock-quote-info';
+                element.textContent = '请选择记账日期后自动查询前一交易日收盘价';
+            });
+            return;
+        }
+
+        const accountMap = new Map(this.data.accountTypes.map(account => [account.id, account]));
+        stockInfoElements.forEach(element => {
+            const userId = element.dataset.user;
+            const accountId = element.dataset.account;
+            const account = accountMap.get(accountId);
+            if (!account) {
+                element.className = 'stock-quote-info error';
+                element.textContent = '股票配置不存在，请删除后重新添加';
+                return;
+            }
+
+            const quote = summary.stockEntry && summary.stockEntry.quotes
+                ? summary.stockEntry.quotes[accountId]
+                : null;
+            const valuation = summary.stockValuations && summary.stockValuations[userId]
+                ? summary.stockValuations[userId][accountId]
+                : null;
+            const shares = summary.balances && summary.balances[userId]
+                ? Number(summary.balances[userId][accountId] || 0)
+                : 0;
+            const sharesText = shares.toLocaleString('zh-CN', { maximumFractionDigits: 4 });
+
+            if (!quote || !Number.isFinite(Number(quote.previousClose)) || Number(quote.previousClose) <= 0) {
+                const errorText = summary.stockErrors ? summary.stockErrors[accountId] : '';
+                if (errorText) {
+                    element.className = 'stock-quote-info error';
+                    element.textContent = `昨收价获取失败：${errorText}`;
+                } else {
+                    element.className = 'stock-quote-info loading';
+                    element.textContent = '昨收价加载中...';
+                }
+                return;
+            }
+
+            const quoteDate = quote.quoteDate || '--';
+            const closePrice = this.formatStockPrice(quote.previousClose, quote.currency);
+            if (!valuation) {
+                element.className = 'stock-quote-info loading';
+                element.textContent = `前收 ${quoteDate}：${closePrice} ${quote.currency}，${sharesText} 股（等待汇率折算）`;
+                return;
+            }
+
+            element.className = 'stock-quote-info ready';
+            element.textContent = `前收 ${quoteDate}：${closePrice} ${valuation.currency}，${sharesText} 股 ≈ ¥${valuation.valueCny.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
+        });
+    }
+
     async updateRecordTotals() {
         const recordDate = this.getActiveRecordDate();
         if (!recordDate) {
-            this.setFxStatus('idle', '汇率：请选择记账日期后自动获取（日汇率）');
+            this.setFxStatus('idle', '汇率/股票：请选择记账日期后自动获取（日汇率与前一交易日收盘价）');
             this.setSaveButtonAvailability(false, '请选择记账日期');
+            this.updateStockQuoteDisplays(null);
             return;
         }
 
@@ -1247,8 +1694,10 @@ class CoupleAssetTracker {
         } catch (error) {
             console.warn('汇率加载失败:', error.message);
         }
+        await this.ensureStockQuotesForDate(recordDate);
 
         const summary = this.collectConvertedTotals(recordDate);
+        this.updateStockQuoteDisplays(summary);
         if (summary.missingCurrencies.length > 0) {
             this.data.settings.users.forEach(user => {
                 document.getElementById(`${user.id}RecordTotal`).textContent = '--';
@@ -1259,6 +1708,25 @@ class CoupleAssetTracker {
             document.getElementById('familyRecordTotal').textContent = '--';
             this.setSaveButtonAvailability(false, '缺少汇率');
             this.setFxStatus('error', `汇率缺失：${summary.missingCurrencies.join(', ')}`);
+            return;
+        }
+        if (summary.missingStockQuotes.length > 0) {
+            const missingStockNames = summary.missingStockQuotes
+                .map(accountId => {
+                    const account = this.data.accountTypes.find(item => item.id === accountId);
+                    if (!account) return accountId;
+                    const code = this.getStockDisplayCode(account);
+                    return `${account.name}${code ? `(${code})` : ''}`;
+                });
+            this.data.settings.users.forEach(user => {
+                document.getElementById(`${user.id}RecordTotal`).textContent = '--';
+            });
+            document.querySelectorAll('.platform-group-total').forEach(element => {
+                element.textContent = '--';
+            });
+            document.getElementById('familyRecordTotal').textContent = '--';
+            this.setSaveButtonAvailability(false, '缺少昨收价');
+            this.setFxStatus('error', `股票昨收缺失：${missingStockNames.join('、')}`);
             return;
         }
 
@@ -1275,7 +1743,7 @@ class CoupleAssetTracker {
             element.textContent = `¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
         });
         document.getElementById('familyRecordTotal').textContent = `¥${summary.totals.combined.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
-        this.setFxStatus('ready', this.getFxSummaryText(summary.rateEntry));
+        this.setFxStatus('ready', this.getRecordMarketSummaryText(summary.rateEntry, summary.stockEntry));
         this.setSaveButtonAvailability(true);
     }
 
@@ -1295,15 +1763,39 @@ class CoupleAssetTracker {
             alert(`汇率获取失败：${error.message}`);
             return;
         }
+        await this.ensureStockQuotesForDate(recordDate);
 
         const summary = this.collectConvertedTotals(recordDate);
         if (summary.missingCurrencies.length > 0) {
             alert(`缺少币种汇率：${summary.missingCurrencies.join(', ')}，请稍后重试`);
             return;
         }
+        if (summary.missingStockQuotes.length > 0) {
+            const missingStockNames = summary.missingStockQuotes
+                .map(accountId => {
+                    const account = this.data.accountTypes.find(item => item.id === accountId);
+                    if (!account) return accountId;
+                    const code = this.getStockDisplayCode(account);
+                    return `${account.name}${code ? `(${code})` : ''}`;
+                });
+            alert(`缺少股票昨收价：${missingStockNames.join('、')}，请稍后重试`);
+            return;
+        }
 
         const balances = summary.balances;
         const totals = summary.totals;
+        const stockQuotesSnapshot = {};
+        Object.entries(summary.stockEntry && summary.stockEntry.quotes ? summary.stockEntry.quotes : {})
+            .forEach(([accountId, quote]) => {
+                stockQuotesSnapshot[accountId] = { ...quote };
+            });
+        const stockValuationsSnapshot = {};
+        Object.entries(summary.stockValuations || {}).forEach(([userId, valuationMap]) => {
+            stockValuationsSnapshot[userId] = {};
+            Object.entries(valuationMap || {}).forEach(([accountId, valuation]) => {
+                stockValuationsSnapshot[userId][accountId] = { ...valuation };
+            });
+        });
 
         // 计算相比上月变化
         const changes = this.calculateChanges(totals);
@@ -1323,6 +1815,17 @@ class CoupleAssetTracker {
                 baseCurrency: summary.rateEntry.baseCurrency || FX_BASE_CURRENCY,
                 rates: { ...(summary.rateEntry.rates || {}) },
                 effectiveDates: { ...(summary.rateEntry.effectiveDates || {}) }
+            },
+            stockSnapshot: {
+                requestedDate: summary.stockEntry && summary.stockEntry.requestedDate
+                    ? summary.stockEntry.requestedDate
+                    : recordDate,
+                provider: summary.stockEntry && summary.stockEntry.provider
+                    ? summary.stockEntry.provider
+                    : 'eastmoney',
+                quotes: stockQuotesSnapshot,
+                errors: { ...(summary.stockErrors || {}) },
+                valuations: stockValuationsSnapshot
             },
             createdAt: new Date().toISOString()
         };
@@ -1646,14 +2149,42 @@ class CoupleAssetTracker {
             : { [FX_BASE_CURRENCY]: 1 };
 
         this.data.accountTypes.forEach(account => {
-            const currency = this.normalizeCurrency(account.currency);
-            const rate = Number(latestRates[currency]) > 0
-                ? Number(latestRates[currency])
-                : (currency === FX_BASE_CURRENCY ? 1 : 1);
-            const amountInCny = this.data.settings.users.reduce((sum, user) => {
-                const rawAmount = latestRecord.balances[user.id]?.[account.id] || 0;
-                return sum + rawAmount * rate;
-            }, 0);
+            let amountInCny = 0;
+            if (this.isStockAccount(account)) {
+                amountInCny = this.data.settings.users.reduce((sum, user) => {
+                    const storedValuation = latestRecord.stockSnapshot
+                        && latestRecord.stockSnapshot.valuations
+                        && latestRecord.stockSnapshot.valuations[user.id]
+                        ? latestRecord.stockSnapshot.valuations[user.id][account.id]
+                        : null;
+                    if (storedValuation && Number.isFinite(Number(storedValuation.valueCny))) {
+                        return sum + Number(storedValuation.valueCny);
+                    }
+
+                    const shares = Number(latestRecord.balances[user.id]?.[account.id] || 0);
+                    const quote = latestRecord.stockSnapshot && latestRecord.stockSnapshot.quotes
+                        ? latestRecord.stockSnapshot.quotes[account.id]
+                        : null;
+                    const previousClose = Number(quote && quote.previousClose);
+                    if (!Number.isFinite(previousClose) || previousClose <= 0) return sum;
+
+                    const stockCurrency = this.normalizeCurrency((quote && quote.currency) || account.currency);
+                    const fxRate = Number(latestRates[stockCurrency]) > 0
+                        ? Number(latestRates[stockCurrency])
+                        : (stockCurrency === FX_BASE_CURRENCY ? 1 : 0);
+                    if (!Number.isFinite(fxRate) || fxRate <= 0) return sum;
+                    return sum + shares * previousClose * fxRate;
+                }, 0);
+            } else {
+                const currency = this.normalizeCurrency(account.currency);
+                const rate = Number(latestRates[currency]) > 0
+                    ? Number(latestRates[currency])
+                    : (currency === FX_BASE_CURRENCY ? 1 : 1);
+                amountInCny = this.data.settings.users.reduce((sum, user) => {
+                    const rawAmount = latestRecord.balances[user.id]?.[account.id] || 0;
+                    return sum + rawAmount * rate;
+                }, 0);
+            }
 
             labels.push(`${account.platform} · ${account.name}`);
             data.push(amountInCny);
@@ -1840,6 +2371,9 @@ class CoupleAssetTracker {
                 }
 
                 platformGroup.accounts.forEach(account => {
+                    const stockCodeTag = this.isStockAccount(account) && this.getStockDisplayCode(account)
+                        ? `<span>代码 ${this.getStockDisplayCode(account)}</span>`
+                        : '';
                     const item = document.createElement('div');
                     item.className = 'account-type-item';
                     item.innerHTML = `
@@ -1849,6 +2383,7 @@ class CoupleAssetTracker {
                                 <div class="account-type-title">${account.name}</div>
                                 <div class="account-type-meta">
                                     <span>${this.getCurrencyLabel(account.currency)}</span>
+                                    ${stockCodeTag}
                                 </div>
                             </div>
                         </div>
@@ -1947,7 +2482,12 @@ class CoupleAssetTracker {
         const defaultPlatform = String(preset.platform || '').trim();
         const defaultOwner = ['xiaoxiao', 'yunyun', 'both'].includes(preset.ownerId) ? preset.ownerId : 'xiaoxiao';
         const defaultCurrency = this.normalizeCurrency(preset.currency || 'CNY');
-        const defaultCategory = preset.category || 'other';
+        const defaultCategory = ['bank', 'payment', 'investment', 'cash', 'stock', 'other'].includes(preset.category)
+            ? preset.category
+            : 'other';
+        const defaultStockCode = String(preset.stockCode || '').trim().toUpperCase();
+        const parsedDefaultStock = this.parseStockCode(defaultStockCode);
+        const normalizedDefaultCurrency = parsedDefaultStock ? parsedDefaultStock.currency : defaultCurrency;
         const defaultIcon = String(
             preset.icon ||
             this.guessIconByPlatform(defaultPlatform || '银行') ||
@@ -1985,7 +2525,7 @@ class CoupleAssetTracker {
         document.getElementById('modalBody').innerHTML = `
             <div style="display: grid; gap: 20px;">
                 <p style="margin: 0; color: #4f5d75; background: #eef3ff; border: 1px solid #d6e2ff; border-radius: 8px; padding: 10px 12px;">
-                    同一平台可一次输入多个产品：在“同平台产品列表”里每行填一个产品；可写“产品名 | 币种”（示例：美元理财 | USD）。
+                    同一平台可一次输入多个产品：普通资产可写“产品名 | 币种”（示例：美元理财 | USD）；股票类别可写“股票名 | 代码”（示例：美团-W | 3690）。
                 </p>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                     <div>
@@ -2017,6 +2557,18 @@ class CoupleAssetTracker {
                             <option value="GBP">英镑（GBP）</option>
                         </select>
                     </div>
+                </div>
+
+                <div id="stockCodeFieldRow" style="display: none;">
+                    <label style="font-weight: 500; margin-bottom: 8px; display: block;">股票代码（股票类别必填）：</label>
+                    <input
+                        type="text"
+                        id="newAccountStockCode"
+                        class="form-input"
+                        style="width: 100%;"
+                        placeholder="如：3690 / HK03690 / 600519 / SZ000001"
+                    >
+                    <p style="margin: 8px 0 0; color: #667085; font-size: 0.82rem;">将自动识别市场和币种，估值时按前一交易日收盘价折算人民币。</p>
                 </div>
 
                 <div>
@@ -2077,6 +2629,7 @@ class CoupleAssetTracker {
                         <option value="bank">银行</option>
                         <option value="payment">支付平台</option>
                         <option value="investment">投资账户</option>
+                        <option value="stock">股票</option>
                         <option value="cash">现金</option>
                         <option value="other">其他</option>
                     </select>
@@ -2088,6 +2641,7 @@ class CoupleAssetTracker {
         const ownerSelect = document.getElementById('newAccountOwner');
         const currencySelect = document.getElementById('newAccountCurrency');
         const categorySelect = document.getElementById('newAccountCategory');
+        const stockCodeInput = document.getElementById('newAccountStockCode');
         const selectedIcon = document.getElementById('selectedIcon');
         const customColorInput = document.getElementById('customColor');
         const selectedColor = document.getElementById('selectedColor');
@@ -2100,14 +2654,29 @@ class CoupleAssetTracker {
             }
         }
         if (ownerSelect) ownerSelect.value = defaultOwner;
-        if (currencySelect) currencySelect.value = defaultCurrency;
+        if (currencySelect) currencySelect.value = normalizedDefaultCurrency;
         if (categorySelect) categorySelect.value = defaultCategory;
+        if (stockCodeInput) stockCodeInput.value = parsedDefaultStock ? parsedDefaultStock.normalizedCode : defaultStockCode;
         if (selectedIcon) selectedIcon.textContent = defaultIcon;
         if (customColorInput) customColorInput.value = defaultColor;
         if (selectedColor) selectedColor.style.background = defaultColor;
 
+        if (categorySelect) {
+            categorySelect.addEventListener('change', () => this.updateAddAccountCategoryUI());
+        }
+        if (stockCodeInput) {
+            stockCodeInput.addEventListener('input', () => {
+                if (!categorySelect || categorySelect.value !== 'stock' || !currencySelect) return;
+                const parsed = this.parseStockCode(stockCodeInput.value);
+                if (parsed) {
+                    currencySelect.value = parsed.currency;
+                }
+            });
+        }
+
         // 添加事件监听
         this.initAccountModalEvents();
+        this.updateAddAccountCategoryUI();
 
         document.getElementById('modalConfirm').onclick = () => this.addAccountType();
         this.showModal();
@@ -2236,6 +2805,45 @@ class CoupleAssetTracker {
             .filter(Boolean);
     }
 
+    parseNewStockProductRows(rawText) {
+        return String(rawText || '')
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean)
+            .map(line => {
+                let name = '';
+                let stockCode = '';
+                if (line.includes('\t')) {
+                    const columns = line.split('\t').map(value => value.trim()).filter(Boolean);
+                    name = columns[0] || '';
+                    stockCode = columns[1] || '';
+                } else if (line.includes('|') || line.includes('｜')) {
+                    const separator = line.includes('|') ? '|' : '｜';
+                    const [rawName, rawCode] = line.split(separator).map(value => value.trim());
+                    name = rawName || '';
+                    stockCode = rawCode || '';
+                } else {
+                    const matched = line.match(/^(.*?)[,，\s]+([A-Z]{0,2}\d{4,6}(?:\.[A-Z]{2})?)$/i);
+                    if (matched) {
+                        name = (matched[1] || '').trim();
+                        stockCode = (matched[2] || '').trim();
+                    }
+                }
+
+                if (!name || !stockCode) return null;
+                const parsed = this.parseStockCode(stockCode);
+                if (!parsed) return null;
+                return {
+                    name,
+                    currency: parsed.currency,
+                    stockCode: parsed.normalizedCode,
+                    stockSecid: parsed.secid,
+                    stockMarket: parsed.market
+                };
+            })
+            .filter(Boolean);
+    }
+
     upsertAccountType(platform, name, ownerId, currency) {
         const normalizedCurrency = this.normalizeCurrency(currency);
         const existing = this.data.accountTypes.find(account =>
@@ -2263,6 +2871,36 @@ class CoupleAssetTracker {
         });
         this.data.accountTypes.push(newAccount);
         return { account: newAccount, isNew: true };
+    }
+
+    updateAddAccountCategoryUI() {
+        const categorySelect = document.getElementById('newAccountCategory');
+        if (!categorySelect) return;
+
+        const isStockMode = categorySelect.value === 'stock';
+        const stockCodeRow = document.getElementById('stockCodeFieldRow');
+        const stockCodeInput = document.getElementById('newAccountStockCode');
+        const currencySelect = document.getElementById('newAccountCurrency');
+        const bulkTextarea = document.getElementById('newAccountNamesBulk');
+
+        if (stockCodeRow) {
+            stockCodeRow.style.display = isStockMode ? 'block' : 'none';
+        }
+        if (currencySelect) {
+            currencySelect.disabled = isStockMode;
+        }
+        if (bulkTextarea) {
+            bulkTextarea.placeholder = isStockMode
+                ? `美团-W | 3690\n腾讯控股 | 0700\n贵州茅台 | 600519`
+                : `朝朝宝\n活期存款\n理财产品A\n美元理财 | USD`;
+        }
+
+        if (isStockMode && stockCodeInput && currencySelect) {
+            const parsed = this.parseStockCode(stockCodeInput.value);
+            if (parsed) {
+                currencySelect.value = parsed.currency;
+            }
+        }
     }
 
     initAccountModalEvents() {
@@ -2395,22 +3033,47 @@ class CoupleAssetTracker {
             : '';
         const ownerId = document.getElementById('newAccountOwner').value;
         const currency = this.normalizeCurrency(document.getElementById('newAccountCurrency').value);
+        const stockCodeInput = document.getElementById('newAccountStockCode');
+        const singleStockCode = stockCodeInput ? stockCodeInput.value.trim() : '';
         const selectedIcon = document.getElementById('selectedIcon').textContent;
         const customIcon = document.getElementById('customIcon').value.trim();
         const selectedColor = document.getElementById('customColor').value;
         const category = document.getElementById('newAccountCategory').value;
+        const isStockMode = category === 'stock';
 
         // 优先使用自定义图标，否则使用选中的预设图标
         const icon = customIcon || selectedIcon;
 
         const draftProducts = [];
-        if (singleName) {
-            draftProducts.push({ name: singleName, currency });
+        if (isStockMode) {
+            if (singleName && singleStockCode) {
+                const parsedSingleStock = this.parseStockCode(singleStockCode);
+                if (!parsedSingleStock) {
+                    alert('股票代码格式不正确，请输入如 3690 / HK03690 / 600519 / SZ000001');
+                    return;
+                }
+                draftProducts.push({
+                    name: singleName,
+                    currency: parsedSingleStock.currency,
+                    stockCode: parsedSingleStock.normalizedCode,
+                    stockSecid: parsedSingleStock.secid,
+                    stockMarket: parsedSingleStock.market
+                });
+            }
+            draftProducts.push(...this.parseNewStockProductRows(bulkProductText));
+        } else {
+            if (singleName) {
+                draftProducts.push({ name: singleName, currency });
+            }
+            draftProducts.push(...this.parseNewAccountProductRows(bulkProductText, currency));
         }
-        draftProducts.push(...this.parseNewAccountProductRows(bulkProductText, currency));
 
         if (!platform || !icon || draftProducts.length === 0) {
-            alert('请填写平台，并至少输入一个产品（单个或列表），再选择图标');
+            alert(
+                isStockMode
+                    ? '请填写平台，并至少输入一条“股票名称 + 股票代码”（单个或列表），再选择图标'
+                    : '请填写平台，并至少输入一个产品（单个或列表），再选择图标'
+            );
             return;
         }
 
@@ -2420,12 +3083,19 @@ class CoupleAssetTracker {
             const normalizedName = String(item.name || '').trim();
             const normalizedCurrency = this.normalizeCurrency(item.currency || currency);
             if (!normalizedName) return;
-            const key = `${normalizedName}__${normalizedCurrency}`;
+            const normalizedStockCode = isStockMode ? String(item.stockCode || '').trim().toUpperCase() : '';
+            if (isStockMode && !normalizedStockCode) return;
+            const key = isStockMode
+                ? `${normalizedName}__${normalizedStockCode}`
+                : `${normalizedName}__${normalizedCurrency}`;
             if (productKeySet.has(key)) return;
             productKeySet.add(key);
             uniqueProducts.push({
                 name: normalizedName,
-                currency: normalizedCurrency
+                currency: normalizedCurrency,
+                stockCode: normalizedStockCode,
+                stockSecid: isStockMode ? String(item.stockSecid || '').trim() : '',
+                stockMarket: isStockMode ? String(item.stockMarket || '').trim().toLowerCase() : ''
             });
         });
 
@@ -2439,7 +3109,11 @@ class CoupleAssetTracker {
                 acc.platform === platform &&
                 acc.name === product.name &&
                 (acc.ownerId || 'both') === ownerId &&
-                this.normalizeCurrency(acc.currency) === product.currency
+                this.normalizeCurrency(acc.currency) === product.currency &&
+                (
+                    !isStockMode ||
+                    this.getStockDisplayCode(acc) === product.stockCode
+                )
             );
             if (exists) {
                 skippedCount += 1;
@@ -2455,6 +3129,9 @@ class CoupleAssetTracker {
                 icon,
                 color: selectedColor,
                 category,
+                stockCode: isStockMode ? product.stockCode : '',
+                stockSecid: isStockMode ? product.stockSecid : '',
+                stockMarket: isStockMode ? product.stockMarket : '',
                 createdAt: now,
                 updatedAt: now
             });
@@ -2465,7 +3142,9 @@ class CoupleAssetTracker {
         });
 
         if (addedCount === 0) {
-            alert('未新增：输入的产品都已存在（同平台 + 同归属 + 同币种）');
+            alert(isStockMode
+                ? '未新增：输入的股票都已存在（同平台 + 同归属 + 同代码）'
+                : '未新增：输入的产品都已存在（同平台 + 同归属 + 同币种）');
             return;
         }
 
