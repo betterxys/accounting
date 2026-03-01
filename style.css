@@ -721,11 +721,34 @@ body {
     padding: 2px 8px;
 }
 
+.account-type-meta .allocation-tag-badge {
+    color: #fff;
+    font-weight: 600;
+}
+
+.account-type-meta .allocation-tag-badge.tag-flexible {
+    background: #2e7d32;
+}
+
+.account-type-meta .allocation-tag-badge.tag-stable {
+    background: #1565c0;
+}
+
+.account-type-meta .allocation-tag-badge.tag-aggressive {
+    background: #c62828;
+}
+
 .account-type-actions {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
+}
+
+.allocation-tag-select {
+    min-width: 118px;
+    padding: 4px 8px;
+    font-size: 0.8rem;
 }
 
 .account-type-actions .btn {
@@ -1121,12 +1144,19 @@ body {
     }
 
     .account-type-item {
-        gap: 8px;
+        flex-direction: column;
+        gap: 10px;
     }
 
     .account-type-actions {
-        flex-direction: column;
-        align-items: flex-end;
+        width: 100%;
+        justify-content: space-between;
+        flex-wrap: wrap;
+    }
+
+    .allocation-tag-select {
+        flex: 1;
+        min-width: 120px;
     }
 
     .account-mgmt-actions {
