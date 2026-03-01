@@ -691,6 +691,18 @@ body {
     padding: 2px 8px;
 }
 
+.account-type-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.account-type-actions .btn {
+    padding: 4px 8px;
+    font-size: 0.8rem;
+}
+
 .account-mgmt-actions {
     display: flex;
     gap: 12px;
@@ -1071,6 +1083,15 @@ body {
 
     .settings-platform-products {
         padding: 6px;
+    }
+
+    .account-type-item {
+        gap: 8px;
+    }
+
+    .account-type-actions {
+        flex-direction: column;
+        align-items: flex-end;
     }
 
     .account-mgmt-actions {
