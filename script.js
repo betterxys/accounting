@@ -1816,11 +1816,28 @@ class CoupleAssetTracker {
                     <div class="settings-platform-header">
                         <span class="settings-platform-icon">${platformGroup.icon}</span>
                         <span class="settings-platform-name">${platformGroup.platform}</span>
-                        <span class="settings-platform-count">${platformGroup.accounts.length}个产品</span>
+                        <span class="settings-platform-actions">
+                            <span class="settings-platform-count">${platformGroup.accounts.length}个产品</span>
+                        </span>
                     </div>
                     <div class="settings-platform-products"></div>
                 `;
                 const productContainer = platformNode.querySelector('.settings-platform-products');
+                const platformActions = platformNode.querySelector('.settings-platform-actions');
+                const sampleAccount = platformGroup.accounts[0] || {};
+                const addProductBtn = document.createElement('button');
+                addProductBtn.type = 'button';
+                addProductBtn.className = 'btn btn-secondary settings-platform-add-btn';
+                addProductBtn.textContent = '＋同平台新增产品';
+                addProductBtn.setAttribute('data-platform', platformGroup.platform || '');
+                addProductBtn.setAttribute('data-owner-id', ownerGroup.ownerId || 'both');
+                addProductBtn.setAttribute('data-currency', this.normalizeCurrency(sampleAccount.currency || 'CNY'));
+                addProductBtn.setAttribute('data-icon', sampleAccount.icon || platformGroup.icon || this.guessIconByPlatform(platformGroup.platform));
+                addProductBtn.setAttribute('data-color', sampleAccount.color || this.guessColorByPlatform(platformGroup.platform));
+                addProductBtn.setAttribute('data-category', sampleAccount.category || 'other');
+                if (platformActions) {
+                    platformActions.appendChild(addProductBtn);
+                }
 
                 platformGroup.accounts.forEach(account => {
                     const item = document.createElement('div');
@@ -1846,6 +1863,8 @@ class CoupleAssetTracker {
             container.appendChild(ownerNode);
         });
 
+        this.bindSettingsPlatformQuickAddEvents();
+
         // 更新系统信息
         document.getElementById('dataCount').textContent = this.data.monthlyRecords.length;
         const lastRecord = this.data.monthlyRecords[0];
@@ -1860,6 +1879,22 @@ class CoupleAssetTracker {
         if (autoSyncToggle) autoSyncToggle.checked = Boolean(syncSettings.autoSync);
 
         this.updateSyncStatusDisplay();
+    }
+
+    bindSettingsPlatformQuickAddEvents() {
+        document.querySelectorAll('.settings-platform-add-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.showAddAccountTypeModal({
+                    platform: btn.getAttribute('data-platform') || '',
+                    ownerId: btn.getAttribute('data-owner-id') || 'both',
+                    currency: btn.getAttribute('data-currency') || 'CNY',
+                    icon: btn.getAttribute('data-icon') || '',
+                    color: btn.getAttribute('data-color') || '',
+                    category: btn.getAttribute('data-category') || 'other',
+                    lockPlatform: true
+                });
+            });
+        });
     }
 
     async sendSyncMagicLink() {
@@ -1906,9 +1941,25 @@ class CoupleAssetTracker {
         }
     }
 
-    showAddAccountTypeModal() {
-        document.getElementById('modalTitle').textContent = '添加资产明细项';
-        
+    showAddAccountTypeModal(preset = {}) {
+        document.getElementById('modalTitle').textContent = '添加资产明细项（支持同平台批量）';
+
+        const defaultPlatform = String(preset.platform || '').trim();
+        const defaultOwner = ['xiaoxiao', 'yunyun', 'both'].includes(preset.ownerId) ? preset.ownerId : 'xiaoxiao';
+        const defaultCurrency = this.normalizeCurrency(preset.currency || 'CNY');
+        const defaultCategory = preset.category || 'other';
+        const defaultIcon = String(
+            preset.icon ||
+            this.guessIconByPlatform(defaultPlatform || '银行') ||
+            '🏦'
+        ).trim() || '🏦';
+        const defaultColor = String(
+            preset.color ||
+            this.guessColorByPlatform(defaultPlatform || '银行') ||
+            '#d32f2f'
+        ).trim() || '#d32f2f';
+        const lockPlatform = Boolean(defaultPlatform && preset.lockPlatform);
+
         const presetIcons = [
             // 银行类
             '🏦', '🏛️', '🏪', '🏢', '🏬', '🏭', '🏡', '🏠',
@@ -1933,14 +1984,17 @@ class CoupleAssetTracker {
 
         document.getElementById('modalBody').innerHTML = `
             <div style="display: grid; gap: 20px;">
+                <p style="margin: 0; color: #4f5d75; background: #eef3ff; border: 1px solid #d6e2ff; border-radius: 8px; padding: 10px 12px;">
+                    同一平台可一次输入多个产品：在“同平台产品列表”里每行填一个产品；可写“产品名 | 币种”（示例：美元理财 | USD）。
+                </p>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                     <div>
                         <label style="font-weight: 500; margin-bottom: 8px; display: block;">平台：</label>
                         <input type="text" id="newAccountPlatform" class="form-input" style="width: 100%;" placeholder="如：招行 / 支付宝 / 汇丰">
                     </div>
                     <div>
-                        <label style="font-weight: 500; margin-bottom: 8px; display: block;">产品名称：</label>
-                        <input type="text" id="newAccountName" class="form-input" style="width: 100%;" placeholder="如：朝朝盈 / 余额宝">
+                        <label style="font-weight: 500; margin-bottom: 8px; display: block;">单个产品（可选）：</label>
+                        <input type="text" id="newAccountName" class="form-input" style="width: 100%;" placeholder="如：朝朝宝（可留空）">
                     </div>
                 </div>
 
@@ -1963,6 +2017,18 @@ class CoupleAssetTracker {
                             <option value="GBP">英镑（GBP）</option>
                         </select>
                     </div>
+                </div>
+
+                <div>
+                    <label style="font-weight: 500; margin-bottom: 8px; display: block;">同平台产品列表（推荐）：</label>
+                    <textarea
+                        id="newAccountNamesBulk"
+                        class="form-input"
+                        style="width: 100%; min-height: 120px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;"
+                        placeholder="朝朝宝
+活期存款
+理财产品A
+美元理财 | USD"></textarea>
                 </div>
                 
                 <div>
@@ -2017,10 +2083,32 @@ class CoupleAssetTracker {
                 </div>
             </div>
         `;
-        
+
+        const platformInput = document.getElementById('newAccountPlatform');
+        const ownerSelect = document.getElementById('newAccountOwner');
+        const currencySelect = document.getElementById('newAccountCurrency');
+        const categorySelect = document.getElementById('newAccountCategory');
+        const selectedIcon = document.getElementById('selectedIcon');
+        const customColorInput = document.getElementById('customColor');
+        const selectedColor = document.getElementById('selectedColor');
+
+        if (platformInput) {
+            platformInput.value = defaultPlatform;
+            platformInput.disabled = lockPlatform;
+            if (lockPlatform) {
+                platformInput.title = '已从平台分组快捷入口进入，平台已锁定';
+            }
+        }
+        if (ownerSelect) ownerSelect.value = defaultOwner;
+        if (currencySelect) currencySelect.value = defaultCurrency;
+        if (categorySelect) categorySelect.value = defaultCategory;
+        if (selectedIcon) selectedIcon.textContent = defaultIcon;
+        if (customColorInput) customColorInput.value = defaultColor;
+        if (selectedColor) selectedColor.style.background = defaultColor;
+
         // 添加事件监听
         this.initAccountModalEvents();
-        
+
         document.getElementById('modalConfirm').onclick = () => this.addAccountType();
         this.showModal();
     }
@@ -2103,6 +2191,46 @@ class CoupleAssetTracker {
                     name,
                     currency: this.inferCurrencyFromAmountText(amountText),
                     amount: this.parseAmountFromText(amountText)
+                };
+            })
+            .filter(Boolean);
+    }
+
+    parseNewAccountProductRows(rawText, defaultCurrency) {
+        const fallbackCurrency = this.normalizeCurrency(defaultCurrency || 'CNY');
+        return String(rawText || '')
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean)
+            .map(line => {
+                let name = '';
+                let currency = fallbackCurrency;
+
+                if (line.includes('\t')) {
+                    const columns = line.split('\t').map(value => value.trim()).filter(Boolean);
+                    name = columns[0] || '';
+                    currency = columns[1] || fallbackCurrency;
+                } else if (line.includes('|') || line.includes('｜')) {
+                    const separator = line.includes('|') ? '|' : '｜';
+                    const [rawName, rawCurrency] = line.split(separator).map(value => value.trim());
+                    name = rawName || '';
+                    currency = rawCurrency || fallbackCurrency;
+                } else {
+                    const matched = line.match(/^(.*?)[,，\s]+(CNY|USD|HKD|EUR|GBP)$/i);
+                    if (matched) {
+                        name = (matched[1] || '').trim();
+                        currency = matched[2] || fallbackCurrency;
+                    } else {
+                        name = line;
+                    }
+                }
+
+                name = String(name || '').trim();
+                if (!name) return null;
+
+                return {
+                    name,
+                    currency: this.normalizeCurrency(currency || fallbackCurrency)
                 };
             })
             .filter(Boolean);
@@ -2259,9 +2387,12 @@ class CoupleAssetTracker {
         alert(`已导入 ${rows.length} 条明细，新增 ${newCount} 条资产模板${applyTip}`);
     }
 
-    addAccountType() {
+    async addAccountType() {
         const platform = document.getElementById('newAccountPlatform').value.trim();
-        const name = document.getElementById('newAccountName').value.trim();
+        const singleName = document.getElementById('newAccountName').value.trim();
+        const bulkProductText = document.getElementById('newAccountNamesBulk')
+            ? document.getElementById('newAccountNamesBulk').value
+            : '';
         const ownerId = document.getElementById('newAccountOwner').value;
         const currency = this.normalizeCurrency(document.getElementById('newAccountCurrency').value);
         const selectedIcon = document.getElementById('selectedIcon').textContent;
@@ -2272,43 +2403,80 @@ class CoupleAssetTracker {
         // 优先使用自定义图标，否则使用选中的预设图标
         const icon = customIcon || selectedIcon;
 
-        if (!platform || !name || !icon) {
-            alert('请填写平台、产品名称并选择图标');
+        const draftProducts = [];
+        if (singleName) {
+            draftProducts.push({ name: singleName, currency });
+        }
+        draftProducts.push(...this.parseNewAccountProductRows(bulkProductText, currency));
+
+        if (!platform || !icon || draftProducts.length === 0) {
+            alert('请填写平台，并至少输入一个产品（单个或列表），再选择图标');
             return;
         }
 
-        // 检查是否已存在相同明细
-        const existingAccount = this.data.accountTypes.find(acc =>
-            acc.platform === platform &&
-            acc.name === name &&
-            (acc.ownerId || 'both') === ownerId &&
-            this.normalizeCurrency(acc.currency) === currency
-        );
-        if (existingAccount) {
-            alert('该用户下已存在相同平台 + 产品 + 币种的明细项');
-            return;
-        }
-
-        const newAccount = this.normalizeAccountType({
-            id: `custom_${Date.now()}`,
-            platform,
-            name,
-            ownerId,
-            currency,
-            icon,
-            color: selectedColor,
-            category,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
+        const uniqueProducts = [];
+        const productKeySet = new Set();
+        draftProducts.forEach(item => {
+            const normalizedName = String(item.name || '').trim();
+            const normalizedCurrency = this.normalizeCurrency(item.currency || currency);
+            if (!normalizedName) return;
+            const key = `${normalizedName}__${normalizedCurrency}`;
+            if (productKeySet.has(key)) return;
+            productKeySet.add(key);
+            uniqueProducts.push({
+                name: normalizedName,
+                currency: normalizedCurrency
+            });
         });
 
-        this.data.accountTypes.push(newAccount);
-        this.saveData();
+        let addedCount = 0;
+        let skippedCount = draftProducts.length - uniqueProducts.length;
+        const addedAccounts = [];
+        const now = new Date().toISOString();
+
+        uniqueProducts.forEach((product, index) => {
+            const exists = this.data.accountTypes.find(acc =>
+                acc.platform === platform &&
+                acc.name === product.name &&
+                (acc.ownerId || 'both') === ownerId &&
+                this.normalizeCurrency(acc.currency) === product.currency
+            );
+            if (exists) {
+                skippedCount += 1;
+                return;
+            }
+
+            const newAccount = this.normalizeAccountType({
+                id: `custom_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 8)}`,
+                platform,
+                name: product.name,
+                ownerId,
+                currency: product.currency,
+                icon,
+                color: selectedColor,
+                category,
+                createdAt: now,
+                updatedAt: now
+            });
+
+            this.data.accountTypes.push(newAccount);
+            addedAccounts.push(newAccount);
+            addedCount += 1;
+        });
+
+        if (addedCount === 0) {
+            alert('未新增：输入的产品都已存在（同平台 + 同归属 + 同币种）');
+            return;
+        }
+
+        await this.saveData();
         this.renderAccountInputs();
         this.renderSettings();
         this.hideModal();
-        
-        console.log('✅ 新账户已添加:', newAccount);
+
+        const skipTip = skippedCount > 0 ? `，跳过 ${skippedCount} 条重复项` : '';
+        alert(`已在「${platform}」下新增 ${addedCount} 条产品${skipTip}`);
+        console.log('✅ 新账户已添加:', addedAccounts);
     }
 
     removeAccountType(accountId) {
