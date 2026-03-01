@@ -2480,7 +2480,7 @@ class CoupleAssetTracker {
         document.getElementById('modalTitle').textContent = '添加资产明细项（支持同平台批量）';
 
         const defaultPlatform = String(preset.platform || '').trim();
-        const defaultOwner = ['xiaoxiao', 'yunyun', 'both'].includes(preset.ownerId) ? preset.ownerId : 'xiaoxiao';
+        const defaultOwner = ['xiaoxiao', 'yunyun', 'both'].includes(preset.ownerId) ? preset.ownerId : 'both';
         const defaultCurrency = this.normalizeCurrency(preset.currency || 'CNY');
         const defaultCategory = ['bank', 'payment', 'investment', 'cash', 'stock', 'other'].includes(preset.category)
             ? preset.category
@@ -2694,6 +2694,7 @@ class CoupleAssetTracker {
                     <div>
                         <label style="font-weight: 500; margin-bottom: 8px; display: block;">归属用户：</label>
                         <select id="batchImportOwner" class="form-select" style="width: 100%;">
+                            <option value="both" selected>双方共用</option>
                             <option value="xiaoxiao">肖肖</option>
                             <option value="yunyun">运运</option>
                         </select>
@@ -3007,12 +3008,17 @@ class CoupleAssetTracker {
             this.switchTab('record');
             document.getElementById('recordDate').value = targetDate;
             this.loadRecordByDate();
+            const targetUserIds = ownerId === 'both'
+                ? this.data.settings.users.map(user => user.id)
+                : [ownerId];
 
             importedValues.forEach(item => {
-                const input = document.querySelector(`[data-user="${ownerId}"][data-account="${item.accountId}"]`);
-                if (input) {
-                    input.value = item.amount === 0 ? '0' : String(item.amount);
-                }
+                targetUserIds.forEach(userId => {
+                    const input = document.querySelector(`[data-user="${userId}"][data-account="${item.accountId}"]`);
+                    if (input) {
+                        input.value = item.amount === 0 ? '0' : String(item.amount);
+                    }
+                });
             });
             this.updateRecordTotals();
         }
