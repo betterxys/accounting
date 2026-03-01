@@ -2387,8 +2387,37 @@ class CoupleAssetTracker {
                                 </div>
                             </div>
                         </div>
-                        <button class="btn btn-danger" onclick="app.removeAccountType('${account.id}')" style="padding: 4px 8px; font-size: 0.8rem;">删除</button>
+                        <div class="account-type-actions"></div>
                     `;
+                    const actionContainer = item.querySelector('.account-type-actions');
+                    const editBtn = document.createElement('button');
+                    editBtn.type = 'button';
+                    editBtn.className = 'btn btn-secondary';
+                    editBtn.textContent = '编辑';
+                    editBtn.addEventListener('click', () => {
+                        this.showAddAccountTypeModal({
+                            editAccountId: account.id,
+                            platform: account.platform,
+                            name: account.name,
+                            ownerId: account.ownerId || 'both',
+                            currency: account.currency,
+                            icon: account.icon,
+                            color: account.color,
+                            category: account.category,
+                            stockCode: this.getStockDisplayCode(account)
+                        });
+                    });
+
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.type = 'button';
+                    deleteBtn.className = 'btn btn-danger';
+                    deleteBtn.textContent = '删除';
+                    deleteBtn.addEventListener('click', () => this.removeAccountType(account.id));
+
+                    if (actionContainer) {
+                        actionContainer.appendChild(editBtn);
+                        actionContainer.appendChild(deleteBtn);
+                    }
                     productContainer.appendChild(item);
                 });
 
@@ -2477,9 +2506,12 @@ class CoupleAssetTracker {
     }
 
     showAddAccountTypeModal(preset = {}) {
-        document.getElementById('modalTitle').textContent = '添加资产明细项（支持同平台批量）';
+        const editAccountId = String(preset.editAccountId || '').trim();
+        const isEditMode = Boolean(editAccountId);
+        document.getElementById('modalTitle').textContent = isEditMode ? '编辑资产明细项' : '添加资产明细项（支持同平台批量）';
 
         const defaultPlatform = String(preset.platform || '').trim();
+        const defaultName = String(preset.name || '').trim();
         const defaultOwner = ['xiaoxiao', 'yunyun', 'both'].includes(preset.ownerId) ? preset.ownerId : 'xiaoxiao';
         const defaultCurrency = this.normalizeCurrency(preset.currency || 'CNY');
         const defaultCategory = ['bank', 'payment', 'investment', 'cash', 'stock', 'other'].includes(preset.category)
@@ -2498,7 +2530,7 @@ class CoupleAssetTracker {
             this.guessColorByPlatform(defaultPlatform || '银行') ||
             '#d32f2f'
         ).trim() || '#d32f2f';
-        const lockPlatform = Boolean(defaultPlatform && preset.lockPlatform);
+        const lockPlatform = Boolean(defaultPlatform && preset.lockPlatform && !isEditMode);
 
         const presetIcons = [
             // 银行类
@@ -2525,7 +2557,10 @@ class CoupleAssetTracker {
         document.getElementById('modalBody').innerHTML = `
             <div style="display: grid; gap: 20px;">
                 <p style="margin: 0; color: #4f5d75; background: #eef3ff; border: 1px solid #d6e2ff; border-radius: 8px; padding: 10px 12px;">
-                    同一平台可一次输入多个产品：普通资产可写“产品名 | 币种”（示例：美元理财 | USD）；股票类别可写“股票名 | 代码”（示例：美团-W | 3690）。
+                    ${isEditMode
+                        ? '可直接修改平台、产品、归属、币种、图标和类别。'
+                        : '同一平台可一次输入多个产品：普通资产可写“产品名 | 币种”（示例：美元理财 | USD）；股票类别可写“股票名 | 代码”（示例：美团-W | 3690）。'
+                    }
                 </p>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                     <div>
@@ -2533,8 +2568,8 @@ class CoupleAssetTracker {
                         <input type="text" id="newAccountPlatform" class="form-input" style="width: 100%;" placeholder="如：招行 / 支付宝 / 汇丰">
                     </div>
                     <div>
-                        <label style="font-weight: 500; margin-bottom: 8px; display: block;">单个产品（可选）：</label>
-                        <input type="text" id="newAccountName" class="form-input" style="width: 100%;" placeholder="如：朝朝宝（可留空）">
+                        <label style="font-weight: 500; margin-bottom: 8px; display: block;">${isEditMode ? '产品名称：' : '单个产品（可选）：'}</label>
+                        <input type="text" id="newAccountName" class="form-input" style="width: 100%;" placeholder="${isEditMode ? '如：朝朝宝' : '如：朝朝宝（可留空）'}">
                     </div>
                 </div>
 
@@ -2570,18 +2605,19 @@ class CoupleAssetTracker {
                     >
                     <p style="margin: 8px 0 0; color: #667085; font-size: 0.82rem;">将自动识别市场和币种，估值时按前一交易日收盘价折算人民币。</p>
                 </div>
-
-                <div>
-                    <label style="font-weight: 500; margin-bottom: 8px; display: block;">同平台产品列表（推荐）：</label>
-                    <textarea
-                        id="newAccountNamesBulk"
-                        class="form-input"
-                        style="width: 100%; min-height: 120px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;"
-                        placeholder="朝朝宝
+                ${isEditMode ? '' : `
+                    <div>
+                        <label style="font-weight: 500; margin-bottom: 8px; display: block;">同平台产品列表（推荐）：</label>
+                        <textarea
+                            id="newAccountNamesBulk"
+                            class="form-input"
+                            style="width: 100%; min-height: 120px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;"
+                            placeholder="朝朝宝
 活期存款
 理财产品A
 美元理财 | USD"></textarea>
-                </div>
+                    </div>
+                `}
                 
                 <div>
                     <label style="font-weight: 500; margin-bottom: 8px; display: block;">选择图标：</label>
@@ -2642,6 +2678,7 @@ class CoupleAssetTracker {
         const currencySelect = document.getElementById('newAccountCurrency');
         const categorySelect = document.getElementById('newAccountCategory');
         const stockCodeInput = document.getElementById('newAccountStockCode');
+        const nameInput = document.getElementById('newAccountName');
         const selectedIcon = document.getElementById('selectedIcon');
         const customColorInput = document.getElementById('customColor');
         const selectedColor = document.getElementById('selectedColor');
@@ -2653,6 +2690,7 @@ class CoupleAssetTracker {
                 platformInput.title = '已从平台分组快捷入口进入，平台已锁定';
             }
         }
+        if (nameInput) nameInput.value = defaultName;
         if (ownerSelect) ownerSelect.value = defaultOwner;
         if (currencySelect) currencySelect.value = normalizedDefaultCurrency;
         if (categorySelect) categorySelect.value = defaultCategory;
@@ -2678,7 +2716,15 @@ class CoupleAssetTracker {
         this.initAccountModalEvents();
         this.updateAddAccountCategoryUI();
 
-        document.getElementById('modalConfirm').onclick = () => this.addAccountType();
+        const modalConfirmBtn = document.getElementById('modalConfirm');
+        if (modalConfirmBtn) {
+            modalConfirmBtn.textContent = isEditMode ? '保存修改' : '确定';
+            modalConfirmBtn.onclick = () => (
+                isEditMode
+                    ? this.updateAccountType(editAccountId)
+                    : this.addAccountType()
+            );
+        }
         this.showModal();
     }
 
@@ -2713,7 +2759,11 @@ class CoupleAssetTracker {
                 </div>
             </div>
         `;
-        document.getElementById('modalConfirm').onclick = () => this.batchImportAccountTypes();
+        const modalConfirmBtn = document.getElementById('modalConfirm');
+        if (modalConfirmBtn) {
+            modalConfirmBtn.textContent = '导入明细';
+            modalConfirmBtn.onclick = () => this.batchImportAccountTypes();
+        }
         this.showModal();
     }
 
@@ -3156,6 +3206,89 @@ class CoupleAssetTracker {
         const skipTip = skippedCount > 0 ? `，跳过 ${skippedCount} 条重复项` : '';
         alert(`已在「${platform}」下新增 ${addedCount} 条产品${skipTip}`);
         console.log('✅ 新账户已添加:', addedAccounts);
+    }
+
+    async updateAccountType(accountId) {
+        const index = this.data.accountTypes.findIndex(account => account.id === accountId);
+        if (index < 0) {
+            alert('要修改的明细不存在，请刷新后重试');
+            return;
+        }
+
+        const platform = document.getElementById('newAccountPlatform').value.trim();
+        const name = document.getElementById('newAccountName').value.trim();
+        const ownerId = document.getElementById('newAccountOwner').value;
+        const currency = this.normalizeCurrency(document.getElementById('newAccountCurrency').value);
+        const stockCodeInput = document.getElementById('newAccountStockCode');
+        const stockCodeRaw = stockCodeInput ? stockCodeInput.value.trim() : '';
+        const selectedIcon = document.getElementById('selectedIcon').textContent;
+        const customIcon = document.getElementById('customIcon').value.trim();
+        const selectedColor = document.getElementById('customColor').value;
+        const category = document.getElementById('newAccountCategory').value;
+        const isStockMode = category === 'stock';
+
+        const icon = customIcon || selectedIcon;
+        if (!platform || !name || !icon) {
+            alert('请填写平台、产品名称并选择图标');
+            return;
+        }
+
+        let resolvedCurrency = currency;
+        let normalizedStockCode = '';
+        let stockSecid = '';
+        let stockMarket = '';
+        if (isStockMode) {
+            const parsed = this.parseStockCode(stockCodeRaw);
+            if (!parsed) {
+                alert('股票代码格式不正确，请输入如 3690 / HK03690 / 600519 / SZ000001');
+                return;
+            }
+            resolvedCurrency = parsed.currency;
+            normalizedStockCode = parsed.normalizedCode;
+            stockSecid = parsed.secid;
+            stockMarket = parsed.market;
+        }
+
+        const duplicate = this.data.accountTypes.find((account, accountIndex) =>
+            accountIndex !== index &&
+            account.platform === platform &&
+            account.name === name &&
+            (account.ownerId || 'both') === ownerId &&
+            this.normalizeCurrency(account.currency) === resolvedCurrency &&
+            (
+                !isStockMode ||
+                this.getStockDisplayCode(account) === normalizedStockCode
+            )
+        );
+        if (duplicate) {
+            alert(isStockMode
+                ? '已存在相同的「平台 + 股票 + 归属 + 代码」明细，请调整后再保存'
+                : '已存在相同的「平台 + 产品 + 归属 + 币种」明细，请调整后再保存');
+            return;
+        }
+
+        const current = this.data.accountTypes[index];
+        const updated = this.normalizeAccountType({
+            ...current,
+            platform,
+            name,
+            ownerId,
+            currency: resolvedCurrency,
+            icon,
+            color: selectedColor,
+            category,
+            stockCode: isStockMode ? normalizedStockCode : '',
+            stockSecid: isStockMode ? stockSecid : '',
+            stockMarket: isStockMode ? stockMarket : '',
+            updatedAt: new Date().toISOString()
+        });
+
+        this.data.accountTypes[index] = updated;
+        await this.saveData();
+        this.renderAccountInputs();
+        this.renderSettings();
+        this.hideModal();
+        alert(`已更新明细：${platform} / ${name}`);
     }
 
     removeAccountType(accountId) {
